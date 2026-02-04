@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Poems for Cats (Only)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Garamond', 'Georgia', serif;
+            background-color: #f5f3ed;
+            color: #3a3a3a;
+            line-height: 1.8;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            font-weight: 300;
+            text-align: center;
+            margin-bottom: 10px;
+            color: #2a2a2a;
+            letter-spacing: 1px;
+        }
+
+        .subtitle {
+            text-align: center;
+            font-style: italic;
+            color: #6a6a6a;
+            margin-bottom: 50px;
+            font-size: 1.1em;
+        }
+
+        .upload-area {
+            border: 2px dashed #c9c4b8;
+            border-radius: 8px;
+            padding: 60px 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background-color: #faf9f5;
+            margin-bottom: 40px;
+        }
+
+        .upload-area:hover {
+            border-color: #8a8a8a;
+            background-color: #f0ede5;
+        }
+
+        .upload-area.dragover {
+            border-color: #5a5a5a;
+            background-color: #e8e4da;
+        }
+
+        .upload-text {
+            font-size: 1.2em;
+            color: #6a6a6a;
+            margin-bottom: 15px;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .btn {
+            background-color: #8a8475;
+            color: #faf9f5;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1em;
+            font-family: 'Garamond', 'Georgia', serif;
+            transition: background-color 0.3s ease;
+        }
+
+        .btn:hover {
+            background-color: #6a6455;
+        }
+
+        .btn:disabled {
+            background-color: #c9c4b8;
+            cursor: not-allowed;
+        }
+
+        .preview-area {
+            display: none;
+            margin-top: 30px;
+        }
+
+        .preview-area.active {
+            display: block;
+        }
+
+        .image-preview {
+            width: 100%;
+            max-width: 600px;
+            height: auto;
+            border-radius: 4px;
+            margin: 0 auto 30px;
+            display: block;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .loading {
+            text-align: center;
+            font-style: italic;
+            color: #8a8475;
+            padding: 30px;
+            display: none;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .result-area {
+            display: none;
+            margin-top: 40px;
+        }
+
+        .result-area.active {
+            display: block;
+        }
+
+        .cat-detected {
+            text-align: center;
+            font-size: 1.3em;
+            color: #5a5a5a;
+            margin-bottom: 30px;
+            font-weight: 300;
+        }
+
+        .poem-container {
+            background-color: #ffffff;
+            padding: 50px 40px;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            border-left: 3px solid #8a8475;
+        }
+
+        .poem-text {
+            white-space: pre-line;
+            font-size: 1.15em;
+            line-height: 2;
+            color: #3a3a3a;
+            font-style: italic;
+        }
+
+        .error {
+            display: none;
+            background-color: #f8e8e8;
+            color: #8a4a4a;
+            padding: 20px;
+            border-radius: 4px;
+            margin-top: 20px;
+            border-left: 3px solid #c97a7a;
+        }
+
+        .error.active {
+            display: block;
+        }
+
+        .try-another {
+            text-align: center;
+            margin-top: 40px;
+        }
+
+        @media (max-width: 600px) {
+            h1 {
+                font-size: 1.8em;
+            }
+
+            .upload-area {
+                padding: 40px 20px;
+            }
+
+            .poem-container {
+                padding: 30px 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Poems for Cats (Only)</h1>
+        <p class="subtitle">in the voice of Virginia Woolf</p>
+
+        <div class="upload-area" id="uploadArea">
+            <p class="upload-text">Drop an image here or click to select</p>
+            <button class="btn" onclick="document.getElementById('fileInput').click()">Choose Image</button>
+            <input type="file" id="fileInput" accept="image/*">
+        </div>
+
+        <div class="preview-area" id="previewArea">
+            <img id="imagePreview" class="image-preview" alt="Selected image">
+        </div>
+
+        <div class="loading" id="loading">
+            Contemplating the feline essence...
+        </div>
+
+        <div class="error" id="error"></div>
+
+        <div class="result-area" id="resultArea">
+            <p class="cat-detected" id="catDetected"></p>
+            <div class="poem-container">
+                <div class="poem-text" id="poemText"></div>
+            </div>
+            <div class="try-another">
+                <button class="btn" onclick="resetApp()">Contemplate Another</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const replicateProxy = "https://itp-ima-replicate-proxy.web.app/api/create_n_get";
+        let authToken = "eyJhbGciOiJSUzI1NiIsImtpZCI6ImY3NThlNTYzYzBiNjRhNzVmN2UzZGFlNDk0ZDM5NTk1YzE0MGVmOTMiLCJ0eXAiOiJKV1QifQ.eyJuYW1lIjoiU2FtIE1hbyIsInBpY3R1cmUiOiJodHRwczovL2xoMy5nb29nbGV1c2VyY29udGVudC5jb20vYS9BQ2c4b2NKeVZOamNKelpwUFBma0w2bFNTNEVkZm94RjA1c2dnVWtIMnE1M1M0V2V2UUxlbHc9czk2LWMiLCJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20vaXRwLWltYS1yZXBsaWNhdGUtcHJveHkiLCJhdWQiOiJpdHAtaW1hLXJlcGxpY2F0ZS1wcm94eSIsImF1dGhfdGltZSI6MTc3MDE4NTY3NywidXNlcl9pZCI6Im1NUlVRbjNsSTZTN0k5dkVubDZEeXF1djl5czIiLCJzdWIiOiJtTVJVUW4zbEk2UzdJOXZFbmw2RHlxdXY5eXMyIiwiaWF0IjoxNzcwMTg1Njc3LCJleHAiOjE3NzAxODkyNzcsImVtYWlsIjoiem0yNjMxQG55dS5lZHUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiZmlyZWJhc2UiOnsiaWRlbnRpdGllcyI6eyJnb29nbGUuY29tIjpbIjEwNzQxOTM3MDIyMDM5ODQwODk5MSJdLCJlbWFpbCI6WyJ6bTI2MzFAbnl1LmVkdSJdfSwic2lnbl9pbl9wcm92aWRlciI6Imdvb2dsZS5jb20ifX0.JsmYq8D0kZIcl-fBkKNIkzBoqMTpZuudkR-nnl-BOyvv4pQRJv1_uabn_nQqlKzeKwwDbst-mTt5nubD35n3QDs5Wv3P4enSSjEIolaiV8mlfrykoWvkrAIAWeqB8T69WQSwgAZkiUYL5bjumSdF-mUOlm8fRdSa-C2vCgGYWP-biygB5hxAV6hfXd0iy0PCCamxTpXNoGSe91w_AQYv91fNVqWYsXZaVRkS7lU0aYbQsp9ZghGItVf_Vd_yyU2JnLrMlB-RWoj4Ptx-3uPgaXRh4pzDZvpXgv2C0jBxiAltm7m8jL4YCJmObOynafSa9ThI-h5ks6-EaOw3lOxJmw";
+
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const previewArea = document.getElementById('previewArea');
+        const imagePreview = document.getElementById('imagePreview');
+        const loading = document.getElementById('loading');
+        const error = document.getElementById('error');
+        const resultArea = document.getElementById('resultArea');
+        const catDetected = document.getElementById('catDetected');
+        const poemText = document.getElementById('poemText');
+
+        // Drag and drop handlers
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFile(e.target.files[0]);
+            }
+        });
+
+        async function handleFile(file) {
+            if (!file.type.startsWith('image/')) {
+                showError('Please select an image file.');
+                return;
+            }
+
+            // Show preview
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                imagePreview.src = e.target.result;
+                previewArea.classList.add('active');
+            };
+            reader.readAsDataURL(file);
+
+            // Convert to base64 for API
+            const base64 = await fileToBase64(file);
+            
+            // Show loading
+            loading.classList.add('active');
+            error.classList.remove('active');
+            resultArea.classList.remove('active');
+
+            try {
+                // Step 1: Analyze image with moondream2
+                console.log('Analyzing image...');
+                const imageDescription = await analyzeImage(base64);
+                console.log('Image analysis result:', imageDescription);
+
+                // Step 2: Check if it's a cat
+                if (!isCat(imageDescription)) {
+                    showCatsOnly();
+                    loading.classList.remove('active');
+                    return;
+                }
+
+                // Step 3: Generate Virginia Woolf-style poem
+                console.log('Generating poem for:', imageDescription);
+                const poem = await generatePoem(imageDescription);
+                console.log('Poem generated');
+
+                // Display results
+                displayResults(imageDescription, poem);
+
+            } catch (err) {
+                console.error('Error:', err);
+                showError('An error occurred. Please try again.');
+            } finally {
+                loading.classList.remove('active');
+            }
+        }
+
+        async function analyzeImage(base64Image) {
+            // Using moondream2 for image analysis
+            const data = {
+                version: "lucataco/moondream2:72ccb656353c348c1385df54b237eeb7bfa874bf11486cf0b9473e691b662d31",
+                input: {
+                    image: base64Image,
+                    prompt: "Describe this image in detail. What animal is in the image? Describe its colors, position, breed, and any distinctive features."
+                }
+            };
+
+            const fetchOptions = {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    'Authorization': `Bearer ${authToken}`,
+                },
+                body: JSON.stringify(data),
+            };
+
+            console.log("Sending image analysis to moondream2");
+            const response = await fetch(replicateProxy, fetchOptions);
+            const prediction = await response.json();
+            console.log("Image analysis result:", prediction);
+            
+            // Extract and convert output to string
+            let description = "";
+            if (typeof prediction.output === 'string') {
+                description = prediction.output;
+            } else if (Array.isArray(prediction.output)) {
+                description = prediction.output.join(' ');
+            } else if (prediction.output) {
+                description = JSON.stringify(prediction.output);
+            } else if (Array.isArray(prediction) && prediction.length > 0) {
+                description = Array.isArray(prediction[0]) ? prediction[0].join(' ') : String(prediction[0]);
+            }
+            
+            if (!description) {
+                throw new Error("No output from image analysis");
+            }
+            
+            return description;
+        }
+
+        async function generatePoem(imageDescription) {
+            const systemPrompt = `You are a literary AI that writes in the style of Virginia Woolf. Create contemplative, lyrical poems with flowing stream-of-consciousness style, rich sensory details, melancholic yet appreciative tone, and philosophical musings on beauty, time, and existence.`;
+            
+            const userPrompt = `Write a poem about this cat: ${imageDescription}
+
+Requirements:
+- 8-12 lines
+- Virginia Woolf's style: flowing, impressionistic, parenthetical asides
+- Focus on the cat's specific details (colors, position, expression)
+- No emojis
+
+Write only the poem.`;
+
+            const data = {
+                model: "openai/gpt-5",
+                input: {
+                    prompt: userPrompt,
+                    system_prompt: systemPrompt,
+                    max_tokens: 500,
+                    temperature: 0.8
+                }
+            };
+
+            const fetchOptions = {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    'Authorization': `Bearer ${authToken}`,
+                },
+                body: JSON.stringify(data),
+            };
+
+            console.log("Sending poem request to GPT-5");
+            const response = await fetch(replicateProxy, fetchOptions);
+            
+            if (!response.ok) {
+                console.error("Response not OK:", response.status, response.statusText);
+                const errorText = await response.text();
+                console.error("Error response:", errorText);
+                throw new Error(`API returned ${response.status}`);
+            }
+            
+            const prediction = await response.json();
+            console.log("Poem prediction:", prediction);
+            
+            // Extract the output - handle various formats
+            let poemText = "";
+            if (Array.isArray(prediction.output)) {
+                poemText = prediction.output.join('');
+            } else if (typeof prediction.output === 'string') {
+                poemText = prediction.output;
+            } else if (prediction.output && prediction.output.completion) {
+                poemText = prediction.output.completion;
+            } else if (Array.isArray(prediction) && prediction.length > 0) {
+                poemText = prediction.join('');
+            }
+            
+            if (!poemText) {
+                throw new Error("No output from poem generation");
+            }
+            
+            return poemText;
+        }
+
+        function isCat(description) {
+            const catKeywords = [
+                'cat', 'cats', 'kitten', 'kittens', 'feline', 'tabby', 'kitty', 
+                'calico', 'siamese', 'persian', 'maine coon', 'ragdoll', 
+                'british shorthair', 'bengal', 'sphynx', 'abyssinian',
+                'russian blue', 'scottish fold', 'whiskers', 'meow', 'purr'
+            ];
+            const lowerDescription = description.toLowerCase();
+            
+            // Must contain at least one cat keyword
+            const hasCatKeyword = catKeywords.some(keyword => lowerDescription.includes(keyword));
+            
+            // Reject if it clearly mentions non-cat things
+            const notCatKeywords = ['dog', 'person', 'people', 'human', 'man', 'woman', 'child', 'bird', 'tree', 'building', 'car', 'vehicle'];
+            const hasNotCatKeyword = notCatKeywords.some(keyword => lowerDescription.includes(keyword));
+            
+            return hasCatKeyword && !hasNotCatKeyword;
+        }
+
+        function showCatsOnly() {
+            catDetected.textContent = "Not a cat detected";
+            poemText.textContent = "Cats only!";
+            resultArea.classList.add('active');
+            error.classList.remove('active');
+        }
+
+        function displayResults(description, poem) {
+            catDetected.textContent = `A cat observed: ${description}`;
+            poemText.textContent = poem;
+            resultArea.classList.add('active');
+        }
+
+        function showError(message) {
+            error.textContent = message;
+            error.classList.add('active');
+        }
+
+        function resetApp() {
+            previewArea.classList.remove('active');
+            resultArea.classList.remove('active');
+            error.classList.remove('active');
+            loading.classList.remove('active');
+            fileInput.value = '';
+        }
+
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = error => reject(error);
+            });
+        }
+    </script>
+</body>
+</html>
