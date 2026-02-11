@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Poems for Cats (Only) - v2</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Garamond', 'Georgia', serif;
+            overflow: hidden;
+            background-color: #f5f3ed;
+        }
+
+        #canvas {
+            width: 100vw;
+            height: 100vh;
+            cursor: grab;
+            position: relative;
+        }
+
+        #canvas.dragging {
+            cursor: grabbing;
+        }
+
+        .node {
+            position: absolute;
+            background: white;
+            border: 2px solid #8a8475;
+            border-radius: 8px;
+            padding: 20px;
+            width: 320px;
+            min-height: 150px;
+            max-height: 600px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            cursor: move;
+            user-select: none;
+            z-index: 1;
+        }
+
+        .node:active {
+            cursor: grabbing;
+        }
+
+        .node img {
+            max-width: 100%;
+            height: auto;
+        }
+
+        .resize-handle {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 20px;
+            height: 20px;
+            cursor: nwse-resize;
+            background: linear-gradient(135deg, transparent 50%, #c9c4b8 50%);
+            border-radius: 0 0 6px 0;
+        }
+
+        .node-header {
+            font-size: 1.1em;
+            font-weight: 600;
+            color: #2a2a2a;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #c9c4b8;
+        }
+
+        .node-content {
+            font-size: 0.95em;
+            color: #3a3a3a;
+        }
+
+        .node.processing {
+            border-color: #6a6455;
+            background: #faf9f5;
+        }
+
+        .node.complete {
+            border-color: #8a8475;
+        }
+
+        .node.error {
+            border-color: #c97a7a;
+            background: #f8e8e8;
+        }
+
+        .upload-zone {
+            border: 2px dashed #c9c4b8;
+            border-radius: 4px;
+            padding: 40px 20px;
+            text-align: center;
+            color: #6a6a6a;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .upload-zone:hover {
+            border-color: #8a8a8a;
+            background: #f0ede5;
+        }
+
+        .upload-zone.dragover {
+            border-color: #5a5a5a;
+            background: #e8e4da;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .image-preview {
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+
+        .poem-text {
+            white-space: pre-line;
+            font-style: italic;
+            line-height: 1.8;
+            margin-top: 10px;
+            padding: 15px;
+            background: #faf9f5;
+            border-radius: 4px;
+        }
+
+        .status {
+            font-size: 0.9em;
+            color: #6a6a6a;
+            font-style: italic;
+            margin-top: 10px;
+        }
+
+        .error-message {
+            color: #8a4a4a;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+
+        .connection {
+            position: absolute;
+            pointer-events: none;
+            z-index: 0;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            overflow: visible;
+        }
+
+        .connection line {
+            stroke: #c9c4b8;
+            stroke-width: 2;
+            stroke-dasharray: 5, 5;
+        }
+
+        .connection line.active {
+            stroke: #8a8475;
+            stroke-width: 3;
+            animation: flowData 1s linear infinite;
+        }
+
+        @keyframes flowData {
+            0% {
+                stroke-dashoffset: 0;
+            }
+            100% {
+                stroke-dashoffset: 10;
+            }
+        }
+
+        #title {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            font-size: 2em;
+            font-weight: 300;
+            color: #2a2a2a;
+            pointer-events: none;
+            z-index: 1000;
+            background: rgba(245, 243, 237, 0.9);
+            padding: 10px 20px;
+            border-radius: 4px;
+        }
+
+        #subtitle {
+            position: fixed;
+            top: 70px;
+            left: 20px;
+            font-size: 1em;
+            font-style: italic;
+            color: #6a6a6a;
+            pointer-events: none;
+            z-index: 1000;
+            background: rgba(245, 243, 237, 0.9);
+            padding: 5px 20px;
+            border-radius: 4px;
+        }
+
+        .btn {
+            background-color: #8a8475;
+            color: #faf9f5;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-family: 'Garamond', 'Georgia', serif;
+            margin-top: 10px;
+        }
+
+        .btn:hover {
+            background-color: #6a6455;
+        }
+
+        .btn:disabled {
+            background-color: #c9c4b8;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div id="title">Poems for Cats (Only)</div>
+    <div id="subtitle">in the voice of Virginia Woolf</div>
+    
+    <div id="canvas">
+        <svg id="connections" class="connection"></svg>
+    </div>
+
+    <script>
+        const replicateProxy = "https://itp-ima-replicate-proxy.web.app/api/create_n_get";
+        const authToken = "eyJhbGciOiJSUzI1NiIsImtpZCI6ImY3NThlNTYzYzBiNjRhNzVmN2UzZGFlNDk0ZDM5NTk1YzE0MGVmOTMiLCJ0eXAiOiJKV1QifQ.eyJuYW1lIjoiU2FtIE1hbyIsInBpY3R1cmUiOiJodHRwczovL2xoMy5nb29nbGV1c2VyY29udGVudC5jb20vYS9BQ2c4b2NKeVZOamNKelpwUFBma0w2bFNTNEVkZm94RjA1c2dnVWtIMnE1M1M0V2V2UUxlbHc9czk2LWMiLCJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20vaXRwLWltYS1yZXBsaWNhdGUtcHJveHkiLCJhdWQiOiJpdHAtaW1hLXJlcGxpY2F0ZS1wcm94eSIsImF1dGhfdGltZSI6MTc3MDE4NTY3NywidXNlcl9pZCI6Im1NUlVRbjNsSTZTN0k5dkVubDZEeXF1djl5czIiLCJzdWIiOiJtTVJVUW4zbEk2UzdJOXZFbmw2RHlxdXY5eXMyIiwiaWF0IjoxNzcwMTg1Njc3LCJleHAiOjE3NzAxODkyNzcsImVtYWlsIjoiem0yNjMxQG55dS5lZHUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiZmlyZWJhc2UiOnsiaWRlbnRpdGllcyI6eyJnb29nbGUuY29tIjpbIjEwNzQxOTM3MDIyMDM5ODQwODk5MSJdLCJlbWFpbCI6WyJ6bTI2MzFAbnl1LmVkdSJdfSwic2lnbl9pbl9wcm92aWRlciI6Imdvb2dsZS5jb20ifX0.JsmYq8D0kZIcl-fBkKNIkzBoqMTpZuudkR-nnl-BOyvv4pQRJv1_uabn_nQqlKzeKwwDbst-mTt5nubD35n3QDs5Wv3P4enSSjEIolaiV8mlfrykoWvkrAIAWeqB8T69WQSwgAZkiUYL5bjumSdF-mUOlm8fRdSa-C2vCgGYWP-biygB5hxAV6hfXd0iy0PCCamxTpXNoGSe91w_AQYv91fNVqWYsXZaVRkS7lU0aYbQsp9ZghGItVf_Vd_yyU2JnLrMlB-RWoj4Ptx-3uPgaXRh4pzDZvpXgv2C0jBxiAltm7m8jL4YCJmObOynafSa9ThI-h5ks6-EaOw3lOxJmw";
+
+        // Canvas state
+        let canvas = document.getElementById('canvas');
+        let connectionsLayer = document.getElementById('connections');
+        let isPanning = false;
+        let startX, startY;
+        let offsetX = 0, offsetY = 0;
+        let nodes = [];
+        let draggedNode = null;
+        let dragOffsetX = 0, dragOffsetY = 0;
+        let maxZIndex = 100;
+        let isResizing = false;
+        let resizingNode = null;
+        let resizeStartX, resizeStartY, resizeStartWidth, resizeStartHeight;
+
+        // Node connections in workflow order
+        const connections = [
+            { from: 'upload', to: 'detect' },
+            { from: 'detect', to: 'poem' },
+            { from: 'poem', to: 'reaction' },
+            { from: 'reaction', to: 'prompt' },
+            { from: 'prompt', to: 'catresponse' },
+            { from: 'prompt', to: 'generate' }
+        ];
+
+        // Workflow data
+        let workflowData = {
+            image: null,
+            imageBase64: null,
+            description: null,
+            poem: null,
+            reaction: null,
+            imagePrompt: null,
+            catResponse: null,
+            reactionImage: null
+        };
+
+        // Initialize nodes
+        function initNodes() {
+            createNode('upload', 100, 100, 'Upload Image', createUploadContent());
+            createNode('detect', 450, 100, 'Cat Detection', '<div class="status">Waiting for image...</div>');
+            createNode('poem', 800, 100, 'Generate Poem', '<div class="status">Waiting for cat detection...</div>');
+            createNode('reaction', 100, 400, 'Analyze Reaction', '<div class="status">Waiting for poem...</div>');
+            createNode('prompt', 450, 400, 'Create Image Prompt', '<div class="status">Waiting for reaction...</div>');
+            createNode('catresponse', 450, 650, 'Cat\'s Response', '<div class="status">Waiting for prompt...</div>');
+            createNode('generate', 800, 650, 'Generate Reaction Image', '<div class="status">Waiting for prompt...</div>');
+        }
+
+        function createNode(id, x, y, title, content) {
+            const node = document.createElement('div');
+            node.className = 'node';
+            node.id = `node-${id}`;
+            node.style.left = x + 'px';
+            node.style.top = y + 'px';
+            node.style.zIndex = maxZIndex++;
+            node.innerHTML = `
+                <div class="node-header">${title}</div>
+                <div class="node-content">${content}</div>
+                <div class="resize-handle"></div>
+            `;
+            
+            // Bring to front on click
+            node.addEventListener('mousedown', (e) => {
+                const resizeHandle = e.target.classList.contains('resize-handle');
+                
+                if (resizeHandle) {
+                    isResizing = true;
+                    resizingNode = node;
+                    resizeStartX = e.clientX;
+                    resizeStartY = e.clientY;
+                    resizeStartWidth = node.offsetWidth;
+                    resizeStartHeight = node.offsetHeight;
+                    e.stopPropagation();
+                    return;
+                }
+                
+                node.style.zIndex = maxZIndex++;
+                
+                if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') {
+                    draggedNode = node;
+                    dragOffsetX = e.clientX - node.offsetLeft;
+                    dragOffsetY = e.clientY - node.offsetTop;
+                    e.stopPropagation();
+                }
+            });
+            
+            canvas.appendChild(node);
+            nodes.push({ id, element: node, x, y });
+        }
+
+        function drawConnections() {
+            connectionsLayer.innerHTML = '';
+            
+            connections.forEach(conn => {
+                const fromNode = document.getElementById(`node-${conn.from}`);
+                const toNode = document.getElementById(`node-${conn.to}`);
+                
+                if (fromNode && toNode) {
+                    const fromRect = fromNode.getBoundingClientRect();
+                    const toRect = toNode.getBoundingClientRect();
+                    const canvasRect = canvas.getBoundingClientRect();
+                    
+                    // Calculate center points relative to canvas
+                    const x1 = fromRect.left + fromRect.width / 2 - canvasRect.left;
+                    const y1 = fromRect.top + fromRect.height / 2 - canvasRect.top;
+                    const x2 = toRect.left + toRect.width / 2 - canvasRect.left;
+                    const y2 = toRect.top + toRect.height / 2 - canvasRect.top;
+                    
+                    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    line.setAttribute('x1', x1);
+                    line.setAttribute('y1', y1);
+                    line.setAttribute('x2', x2);
+                    line.setAttribute('y2', y2);
+                    line.setAttribute('id', `line-${conn.from}-${conn.to}`);
+                    
+                    connectionsLayer.appendChild(line);
+                }
+            });
+        }
+
+        function activateConnection(toNodeId) {
+            // Find the connection leading TO this node
+            const conn = connections.find(c => c.to === toNodeId);
+            if (conn) {
+                const line = document.getElementById(`line-${conn.from}-${conn.to}`);
+                if (line) {
+                    line.classList.add('active');
+                }
+            }
+        }
+
+        function deactivateConnection(toNodeId) {
+            const conn = connections.find(c => c.to === toNodeId);
+            if (conn) {
+                const line = document.getElementById(`line-${conn.from}-${conn.to}`);
+                if (line) {
+                    line.classList.remove('active');
+                }
+            }
+        }
+
+        function createUploadContent() {
+            return `
+                <div class="upload-zone" onclick="document.getElementById('fileInput').click()">
+                    Drop image or click to upload
+                </div>
+                <input type="file" id="fileInput" accept="image/*">
+            `;
+        }
+
+        function updateNode(id, content, status = '') {
+            const node = document.getElementById(`node-${id}`);
+            if (node) {
+                const contentDiv = node.querySelector('.node-content');
+                contentDiv.innerHTML = content;
+                
+                node.classList.remove('processing', 'complete', 'error');
+                if (status) node.classList.add(status);
+            }
+        }
+
+        // Canvas panning
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.target === canvas) {
+                isPanning = true;
+                startX = e.clientX - offsetX;
+                startY = e.clientY - offsetY;
+                canvas.classList.add('dragging');
+            }
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (isResizing && resizingNode) {
+                const deltaX = e.clientX - resizeStartX;
+                const deltaY = e.clientY - resizeStartY;
+                const newWidth = Math.max(280, resizeStartWidth + deltaX);
+                const newHeight = Math.max(150, resizeStartHeight + deltaY);
+                resizingNode.style.width = newWidth + 'px';
+                resizingNode.style.height = newHeight + 'px';
+                drawConnections();
+            } else if (draggedNode) {
+                const x = e.clientX - dragOffsetX;
+                const y = e.clientY - dragOffsetY;
+                draggedNode.style.left = x + 'px';
+                draggedNode.style.top = y + 'px';
+                drawConnections();
+            } else if (isPanning) {
+                offsetX = e.clientX - startX;
+                offsetY = e.clientY - startY;
+                canvas.style.transform = `translate(${offsetX}px, ${offsetY}px)`;
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            isPanning = false;
+            draggedNode = null;
+            isResizing = false;
+            resizingNode = null;
+            canvas.classList.remove('dragging');
+        });
+
+        // File upload handling
+        document.addEventListener('DOMContentLoaded', () => {
+            const fileInput = document.getElementById('fileInput');
+            fileInput.addEventListener('change', handleFileUpload);
+        });
+
+        async function handleFileUpload(e) {
+            const file = e.target.files[0];
+            if (!file || !file.type.startsWith('image/')) return;
+
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                workflowData.image = event.target.result;
+                workflowData.imageBase64 = event.target.result;
+                
+                updateNode('upload', `<img src="${event.target.result}" class="image-preview">`, 'complete');
+                
+                // Start workflow
+                await detectCat();
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function detectCat() {
+            updateNode('detect', '<div class="status">Analyzing image...</div>', 'processing');
+            activateConnection('detect');
+            
+            try {
+                const data = {
+                    version: "lucataco/moondream2:72ccb656353c348c1385df54b237eeb7bfa874bf11486cf0b9473e691b662d31",
+                    input: {
+                        image: workflowData.imageBase64,
+                        prompt: "Describe this image in detail. What animal is in the image? Describe its colors, position, breed, and any distinctive features."
+                    }
+                };
+
+                const response = await fetch(replicateProxy, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        'Authorization': `Bearer ${authToken}`,
+                    },
+                    body: JSON.stringify(data),
+                });
+
+                const prediction = await response.json();
+                console.log("Detection result:", prediction);
+                
+                let description = "";
+                if (typeof prediction.output === 'string') {
+                    description = prediction.output;
+                } else if (Array.isArray(prediction.output)) {
+                    description = prediction.output.join(' ');
+                }
+                
+                workflowData.description = description;
+                
+                // Check if cat
+                const isCat = checkIfCat(description);
+                
+                deactivateConnection('detect');
+                
+                if (isCat) {
+                    updateNode('detect', `<div><strong>Cat detected!</strong></div><div style="margin-top: 10px; font-size: 0.9em;">${description}</div>`, 'complete');
+                    await generatePoem();
+                } else {
+                    updateNode('detect', `<div class="error-message">Not a cat detected</div><div style="margin-top: 10px; font-size: 0.9em;">${description}</div>`, 'error');
+                    updateNode('poem', '<div class="error-message">Cats only!</div>', 'error');
+                }
+                
+            } catch (error) {
+                console.error("Detection error:", error);
+                deactivateConnection('detect');
+                updateNode('detect', `<div class="error-message">Error: ${error.message}</div>`, 'error');
+            }
+        }
+
+        function checkIfCat(description) {
+            const catKeywords = ['cat', 'cats', 'kitten', 'kittens', 'feline', 'tabby', 'kitty', 'calico', 'siamese', 'persian', 'whiskers', 'meow', 'purr', 'maine coon', 'ragdoll', 'bengal', 'sphynx'];
+            const notCatKeywords = ['dog', 'person', 'people', 'human', 'man', 'woman', 'child', 'bird', 'watch', 'clock', 'wristwatch', 'building', 'car', 'vehicle', 'tree', 'plant', 'food', 'furniture', 'object', 'phone', 'computer', 'screen', 'book', 'bottle', 'cup', 'table', 'chair'];
+            const lower = description.toLowerCase();
+            
+            const hasCat = catKeywords.some(k => lower.includes(k));
+            const hasNotCat = notCatKeywords.some(k => lower.includes(k));
+            
+            // MUST have cat keyword AND no non-cat keywords
+            return hasCat && !hasNotCat;
+        }
+
+        async function generatePoem() {
+            updateNode('poem', '<div class="status">Generating poem...</div>', 'processing');
+            activateConnection('poem');
+            
+            try {
+                const systemPrompt = "You are a literary AI that writes in the style of Virginia Woolf. Create contemplative, lyrical poems with flowing stream-of-consciousness style, rich sensory details, melancholic yet appreciative tone, and philosophical musings on beauty, time, and existence.";
+                
+                const userPrompt = `Write a poem about this cat: ${workflowData.description}
+
+Requirements:
+- 8-12 lines
+- Virginia Woolf's style: flowing, impressionistic, parenthetical asides
+- Focus on the cat's specific details
+- No emojis
+
+Write only the poem.`;
+
+                const data = {
+                    model: "openai/gpt-5",
+                    input: {
+                        prompt: userPrompt,
+                        system_prompt: systemPrompt,
+                        max_tokens: 500,
+                        temperature: 0.8
+                    }
+                };
+
+                const response = await fetch(replicateProxy, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        'Authorization': `Bearer ${authToken}`,
+                    },
+                    body: JSON.stringify(data),
+                });
+
+                const prediction = await response.json();
+                console.log("Poem result:", prediction);
+                
+                let poem = "";
+                if (Array.isArray(prediction.output)) {
+                    poem = prediction.output.join('');
+                } else if (typeof prediction.output === 'string') {
+                    poem = prediction.output;
+                }
+                
+                workflowData.poem = poem;
+                
+                deactivateConnection('poem');
+                updateNode('poem', `<div class="poem-text">${poem}</div>`, 'complete');
+                await analyzeReaction();
+                
+            } catch (error) {
+                console.error("Poem error:", error);
+                deactivateConnection('poem');
+                updateNode('poem', `<div class="error-message">Error: ${error.message}</div>`, 'error');
+            }
+        }
+
+        async function analyzeReaction() {
+            updateNode('reaction', '<div class="status">Analyzing cat reaction...</div>', 'processing');
+            activateConnection('reaction');
+            
+            try {
+                const systemPrompt = "You are an expert in cat behavior and psychology. Analyze how a specific cat would emotionally react to reading a poem about themselves.";
+                
+                const userPrompt = `Original cat description: ${workflowData.description}
+
+Poem written about this cat:
+${workflowData.poem}
+
+How would THIS specific cat react emotionally and behaviorally to reading this poem about themselves? Describe their facial expression, body language, and emotional state in 2-3 sentences.`;
+
+                const data = {
+                    model: "openai/gpt-5",
+                    input: {
+                        prompt: userPrompt,
+                        system_prompt: systemPrompt,
+                        max_tokens: 300,
+                        temperature: 0.7
+                    }
+                };
+
+                const response = await fetch(replicateProxy, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        'Authorization': `Bearer ${authToken}`,
+                    },
+                    body: JSON.stringify(data),
+                });
+
+                const prediction = await response.json();
+                console.log("Reaction result:", prediction);
+                
+                let reaction = "";
+                if (Array.isArray(prediction.output)) {
+                    reaction = prediction.output.join('');
+                } else if (typeof prediction.output === 'string') {
+                    reaction = prediction.output;
+                }
+                
+                workflowData.reaction = reaction;
+                
+                deactivateConnection('reaction');
+                updateNode('reaction', `<div style="font-size: 0.95em; line-height: 1.6;">${reaction}</div>`, 'complete');
+                await createImagePrompt();
+                
+            } catch (error) {
+                console.error("Reaction error:", error);
+                deactivateConnection('reaction');
+                updateNode('reaction', `<div class="error-message">Error: ${error.message}</div>`, 'error');
+            }
+        }
+
+        async function createImagePrompt() {
+            updateNode('prompt', '<div class="status">Creating image prompt...</div>', 'processing');
+            activateConnection('prompt');
+            
+            try {
+                const systemPrompt = "You are an expert at writing image generation prompts. Convert behavioral descriptions into detailed visual prompts for image generation.";
+                
+                const userPrompt = `Original cat description: ${workflowData.description}
+
+Cat's emotional reaction to the poem: ${workflowData.reaction}
+
+Create a detailed image generation prompt (2-3 sentences) that shows THIS SPECIFIC CAT with this emotional reaction. Include:
+- The cat's actual breed, colors, and physical features from the original description
+- The emotional expression and body language from the reaction
+- Photorealistic style, good lighting, detailed fur texture
+
+Make it vivid and specific for image generation.`;
+
+                const data = {
+                    model: "openai/gpt-5",
+                    input: {
+                        prompt: userPrompt,
+                        system_prompt: systemPrompt,
+                        max_tokens: 200,
+                        temperature: 0.7
+                    }
+                };
+
+                const response = await fetch(replicateProxy, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        'Authorization': `Bearer ${authToken}`,
+                    },
+                    body: JSON.stringify(data),
+                });
+
+                const prediction = await response.json();
+                console.log("Prompt result:", prediction);
+                
+                let imagePrompt = "";
+                if (Array.isArray(prediction.output)) {
+                    imagePrompt = prediction.output.join('');
+                } else if (typeof prediction.output === 'string') {
+                    imagePrompt = prediction.output;
+                }
+                
+                workflowData.imagePrompt = imagePrompt;
+                
+                deactivateConnection('prompt');
+                updateNode('prompt', `<div style="font-size: 0.95em; line-height: 1.6;">"${imagePrompt}"</div>`, 'complete');
+                
+                // Branch: generate both cat response and reaction image
+                await generateCatResponse();
+                await generateReactionImage();
+                
+            } catch (error) {
+                console.error("Prompt error:", error);
+                deactivateConnection('prompt');
+                updateNode('prompt', `<div class="error-message">Error: ${error.message}</div>`, 'error');
+            }
+        }
+
+        async function generateCatResponse() {
+            updateNode('catresponse', '<div class="status">Cat is responding...</div>', 'processing');
+            activateConnection('catresponse');
+            
+            try {
+                const systemPrompt = "You are a cat who just read a fancy poem about yourself. You respond in broken, grammatically incorrect English like 'lolcat' speak - cute, smug, and narcissistic. Use lowercase, omit words, make it endearing but bratty.";
+                
+                const userPrompt = `The poem written about you:
+${workflowData.poem}
+
+Respond to this poem as a cat. Be cute, smug, and self-absorbed. Use broken grammar like 'me so pretty', 'hooman write good', 'yes me am beautiful one'. 2-3 sentences max. Show you know you're adorable and you're pleased about it.`;
+
+                const data = {
+                    model: "openai/gpt-5",
+                    input: {
+                        prompt: userPrompt,
+                        system_prompt: systemPrompt,
+                        max_tokens: 150,
+                        temperature: 0.9
+                    }
+                };
+
+                const response = await fetch(replicateProxy, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        'Authorization': `Bearer ${authToken}`,
+                    },
+                    body: JSON.stringify(data),
+                });
+
+                const prediction = await response.json();
+                console.log("Cat response result:", prediction);
+                
+                let catResponse = "";
+                if (Array.isArray(prediction.output)) {
+                    catResponse = prediction.output.join('');
+                } else if (typeof prediction.output === 'string') {
+                    catResponse = prediction.output;
+                }
+                
+                workflowData.catResponse = catResponse;
+                
+                deactivateConnection('catresponse');
+                updateNode('catresponse', `<div style="font-size: 0.95em; line-height: 1.6; font-style: italic;">${catResponse}</div>`, 'complete');
+                
+            } catch (error) {
+                console.error("Cat response error:", error);
+                deactivateConnection('catresponse');
+                updateNode('catresponse', `<div class="error-message">Error: ${error.message}</div>`, 'error');
+            }
+        }
+
+        async function generateReactionImage() {
+            updateNode('generate', '<div class="status">Generating reaction image...</div>', 'processing');
+            activateConnection('generate');
+            
+            try {
+                const data = {
+                    model: "black-forest-labs/flux-1.1-pro",
+                    input: {
+                        prompt: workflowData.imagePrompt,
+                        aspect_ratio: "1:1",
+                        output_format: "webp"
+                    }
+                };
+
+                const response = await fetch(replicateProxy, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        'Authorization': `Bearer ${authToken}`,
+                    },
+                    body: JSON.stringify(data),
+                });
+
+                const prediction = await response.json();
+                console.log("Image result:", prediction);
+                
+                let imageUrl = "";
+                if (typeof prediction.output === 'string') {
+                    imageUrl = prediction.output;
+                } else if (Array.isArray(prediction.output) && prediction.output.length > 0) {
+                    imageUrl = prediction.output[0];
+                }
+                
+                workflowData.reactionImage = imageUrl;
+                
+                deactivateConnection('generate');
+                updateNode('generate', `<img src="${imageUrl}" class="image-preview" alt="Cat reaction">`, 'complete');
+                
+            } catch (error) {
+                console.error("Image generation error:", error);
+                deactivateConnection('generate');
+                updateNode('generate', `<div class="error-message">Error: ${error.message}</div>`, 'error');
+            }
+        }
+
+        // Initialize
+        initNodes();
+        
+        // Draw initial connections after nodes are created
+        setTimeout(() => {
+            drawConnections();
+        }, 100);
+    </script>
+</body>
+</html>
