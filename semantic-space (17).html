@@ -1,0 +1,2424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Semantic Space</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,300;0,400;1,300&family=DM+Sans:wght@300;400&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/umap-js/1.3.3/umap-js.min.js"></script>
+<style>
+  :root {
+    --off-white: #F7F5F0;
+    --paper: #EDEAE2;
+    --fog: #D8D4CA;
+    --ink: #2A2723;
+    --ink-light: #7A7670;
+    --ink-faint: #B8B4AA;
+    --accent: #C8A882;
+    --panel-w: 280px;
+    --radius: 4px;
+    --transition: 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--off-white);
+    color: var(--ink);
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+    cursor: default;
+    user-select: none;
+  }
+
+  /* ── CANVAS ── */
+  #canvas {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    cursor: grab;
+  }
+  #canvas.dragging { cursor: grabbing; }
+  #space {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    transform-origin: center center;
+    will-change: transform;
+  }
+
+  /* drag zone indicator */
+  #drag-zone {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 180px;
+    height: 180px;
+    border-radius: 50%;
+    border: 1px solid rgba(42,39,35,0.06);
+    pointer-events: none;
+    z-index: 10;
+    transition: border-color 0.4s;
+  }
+  #drag-zone.active { border-color: rgba(200,168,130,0.25); }
+
+  /* ── LOST POPUP ── */
+  #lost-popup {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, calc(-50% - 120px));
+    background: white;
+    border: 1px solid var(--fog);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    z-index: 200;
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    width: 200px;
+    box-shadow: 0 8px 32px rgba(42,39,35,0.12);
+    pointer-events: all;
+  }
+  #lost-popup.visible { display: flex; }
+  #lost-popup-label {
+    font-size: 10px;
+    color: var(--ink-faint);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    text-align: center;
+  }
+  #lost-popup-post {
+    font-family: 'Cormorant', serif;
+    font-size: 13px;
+    font-style: italic;
+    color: var(--ink-light);
+    text-align: center;
+    line-height: 1.4;
+    min-height: 32px;
+  }
+  #lost-popup-btn {
+    background: var(--ink);
+    color: white;
+    border: none;
+    border-radius: var(--radius);
+    padding: 8px;
+    font-size: 10px;
+    font-family: 'DM Sans', sans-serif;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: opacity var(--transition);
+    text-align: center;
+  }
+  #lost-popup-btn:hover { opacity: 0.8; }
+  #lost-popup-dismiss {
+    font-size: 9px;
+    color: var(--ink-faint);
+    text-align: center;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+  }
+  #lost-popup-dismiss:hover { color: var(--ink-light); }
+
+  /* ── POST CARDS ── */
+  .post-card {
+    position: absolute;
+    transform-origin: center center;
+    cursor: pointer;
+    transition: opacity 0.5s ease, transform 0.3s ease;
+    will-change: transform, opacity;
+  }
+  .post-card:hover .card-inner { box-shadow: 0 8px 32px rgba(42,39,35,0.12); }
+
+  .card-inner {
+    background: #fff;
+    border: 1px solid rgba(42,39,35,0.08);
+    border-radius: var(--radius);
+    overflow: hidden;
+    transition: box-shadow var(--transition), transform var(--transition);
+    width: 140px;
+  }
+  .card-img {
+    width: 140px;
+    height: 140px;
+    object-fit: cover;
+    display: block;
+    background: var(--paper);
+  }
+  .card-img-placeholder {
+    width: 140px;
+    height: 140px;
+    background: var(--paper);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .card-caption {
+    padding: 8px 10px;
+    font-size: 10px;
+    line-height: 1.5;
+    color: var(--ink-light);
+    font-family: 'Cormorant', serif;
+    font-style: italic;
+    max-height: 48px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .post-card.user-post .card-inner {
+    border-color: rgba(200,168,130,0.3);
+  }
+
+  /* ── SIDEBAR ── */
+  #sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: var(--panel-w);
+    background: rgba(247,245,240,0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-right: 1px solid var(--fog);
+    display: flex;
+    flex-direction: column;
+    z-index: 100;
+    padding: 0;
+  }
+
+  .sidebar-header {
+    padding: 28px 24px 20px;
+    border-bottom: 1px solid var(--fog);
+  }
+  .sidebar-title {
+    font-family: 'Cormorant', serif;
+    font-weight: 300;
+    font-size: 18px;
+    letter-spacing: 0.03em;
+    color: var(--ink);
+    margin-bottom: 2px;
+  }
+  .sidebar-sub {
+    font-size: 10px;
+    color: var(--ink-faint);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* thumbnail area */
+  #thumb-area {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--fog);
+    flex-shrink: 0;
+  }
+
+  #thumb-display {
+    width: 100%;
+    aspect-ratio: 1;
+    background: var(--paper);
+    border: 1px solid var(--fog);
+    border-radius: var(--radius);
+    overflow: hidden;
+    position: relative;
+    margin-bottom: 10px;
+    cursor: grab;
+  }
+  #thumb-display:active { cursor: grabbing; }
+  #thumb-display img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  #thumb-blank {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 8px;
+    color: var(--ink-faint);
+    font-size: 11px;
+    letter-spacing: 0.05em;
+  }
+  #thumb-blank svg { opacity: 0.3; }
+
+  /* drag-out overlay */
+  #thumb-display.drag-active::after {
+    content: 'drag to post';
+    position: absolute;
+    inset: 0;
+    background: rgba(200,168,130,0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    backdrop-filter: blur(2px);
+  }
+
+  /* history arrows */
+  #history-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .hist-btn {
+    background: none;
+    border: 1px solid var(--fog);
+    color: var(--ink-light);
+    cursor: pointer;
+    border-radius: var(--radius);
+    padding: 4px 10px;
+    font-size: 11px;
+    font-family: 'DM Sans', sans-serif;
+    transition: all var(--transition);
+    display: flex; align-items: center; gap: 4px;
+  }
+  .hist-btn:hover { border-color: var(--ink-faint); color: var(--ink); }
+  .hist-btn:disabled { opacity: 0.3; cursor: default; }
+  #history-label {
+    font-size: 9px;
+    color: var(--ink-faint);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  /* prompt inputs */
+  #prompt-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .prompt-block {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: white;
+    border: 1px solid var(--fog);
+    border-radius: var(--radius);
+    padding: 10px;
+    transition: border-color var(--transition);
+  }
+  .prompt-block:focus-within { border-color: var(--accent); }
+  .prompt-label {
+    font-size: 9px;
+    color: var(--ink-faint);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .prompt-input {
+    background: none;
+    border: none;
+    outline: none;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 12px;
+    color: var(--ink);
+    resize: none;
+    line-height: 1.5;
+    min-height: 52px;
+    max-height: 80px;
+    overflow-y: auto;
+    width: 100%;
+  }
+  .prompt-input::placeholder { color: var(--ink-faint); }
+
+  .prompt-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .btn-gen {
+    background: var(--ink);
+    color: var(--off-white);
+    border: none;
+    border-radius: var(--radius);
+    padding: 7px 14px;
+    font-size: 11px;
+    font-family: 'DM Sans', sans-serif;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: all var(--transition);
+    flex: 1;
+  }
+  .btn-gen:hover { background: #3d3a35; }
+  .btn-gen:disabled { opacity: 0.4; cursor: default; }
+  .btn-live {
+    background: none;
+    border: 1px solid var(--fog);
+    color: var(--ink-faint);
+    border-radius: var(--radius);
+    padding: 6px 8px;
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    transition: all var(--transition);
+    white-space: nowrap;
+  }
+  .btn-live.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+  }
+
+  /* generating state */
+  .generating-indicator {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: var(--ink-faint);
+    padding: 4px 0;
+  }
+  .generating-indicator.active { display: flex; }
+  .dot-pulse { display: flex; gap: 3px; }
+  .dot-pulse span {
+    width: 3px; height: 3px;
+    background: var(--ink-faint);
+    border-radius: 50%;
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  .dot-pulse span:nth-child(2) { animation-delay: 0.2s; }
+  .dot-pulse span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.3; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.3); }
+  }
+
+  /* ── SIDEBAR BOTTOM CONTROLS ── */
+  #sidebar-bottom {
+    margin-top: auto;
+    padding: 16px 24px;
+    border-top: 1px solid var(--fog);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .icon-btn {
+    width: 32px; height: 32px;
+    background: none;
+    border: 1px solid var(--fog);
+    border-radius: var(--radius);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--ink-light);
+    transition: all var(--transition);
+    position: relative;
+  }
+  .icon-btn:hover { border-color: var(--ink-faint); color: var(--ink); }
+  .icon-btn.active { background: var(--ink); color: var(--off-white); border-color: var(--ink); }
+
+  /* ── ADMIN PANEL ── */
+  #admin-panel {
+    position: fixed;
+    left: calc(var(--panel-w) + 12px);
+    bottom: 20px;
+    background: rgba(247,245,240,0.96);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--fog);
+    border-radius: var(--radius);
+    padding: 16px;
+    width: 200px;
+    z-index: 90;
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    box-shadow: 0 4px 20px rgba(42,39,35,0.08);
+  }
+  #admin-panel.visible { display: flex; }
+  #admin-panel label {
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    display: block;
+    margin-bottom: 4px;
+  }
+  #admin-count {
+    width: 100%;
+    background: white;
+    border: 1px solid var(--fog);
+    border-radius: var(--radius);
+    padding: 7px 10px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    color: var(--ink);
+    outline: none;
+    transition: border-color var(--transition);
+  }
+  #admin-count:focus { border-color: var(--accent); }
+  .btn-populate {
+    background: var(--ink);
+    color: var(--off-white);
+    border: none;
+    border-radius: var(--radius);
+    padding: 8px;
+    font-size: 11px;
+    font-family: 'DM Sans', sans-serif;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: background var(--transition);
+    width: 100%;
+  }
+  .btn-populate:hover { background: #3d3a35; }
+  .btn-populate:disabled { opacity: 0.4; cursor: default; }
+  .admin-progress {
+    font-size: 10px;
+    color: var(--ink-faint);
+    text-align: center;
+    display: none;
+  }
+  .admin-progress.visible { display: block; }
+
+  /* ── MY POSTS PANEL ── */
+  #my-posts-panel {
+    position: fixed;
+    left: calc(var(--panel-w) + 12px);
+    top: 20px;
+    bottom: 20px;
+    width: 220px;
+    background: rgba(247,245,240,0.96);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--fog);
+    border-radius: var(--radius);
+    z-index: 90;
+    display: none;
+    flex-direction: column;
+    box-shadow: 0 4px 20px rgba(42,39,35,0.08);
+  }
+  #my-posts-panel.visible { display: flex; }
+  .panel-head {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--fog);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  #my-posts-grid {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    align-content: start;
+  }
+  .my-post-thumb {
+    aspect-ratio: 1;
+    background: var(--paper);
+    border-radius: var(--radius);
+    overflow: hidden;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all var(--transition);
+    position: relative;
+  }
+  .my-post-thumb:hover { border-color: var(--accent); transform: scale(1.02); }
+  .my-post-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .my-post-empty {
+    padding: 24px 16px;
+    font-size: 11px;
+    color: var(--ink-faint);
+    text-align: center;
+    font-family: 'Cormorant', serif;
+    font-style: italic;
+    line-height: 1.6;
+  }
+
+  /* ── MODEL SETTINGS PANEL ── */
+  #model-panel {
+    position: fixed;
+    left: calc(var(--panel-w) + 12px);
+    bottom: 20px;
+    width: 260px;
+    background: rgba(247,245,240,0.96);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--fog);
+    border-radius: var(--radius);
+    z-index: 90;
+    display: none;
+    flex-direction: column;
+    box-shadow: 0 4px 20px rgba(42,39,35,0.08);
+    padding: 16px;
+    gap: 10px;
+  }
+  #model-panel.visible { display: flex; }
+  .model-row label {
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    display: block;
+    margin-bottom: 4px;
+  }
+  .model-row input {
+    width: 100%;
+    background: white;
+    border: 1px solid var(--fog);
+    border-radius: var(--radius);
+    padding: 6px 8px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 10px;
+    color: var(--ink);
+    outline: none;
+  }
+  .model-row input:focus { border-color: var(--accent); }
+
+  /* ── REVERSE PROMPT MODAL ── */
+  #reverse-modal {
+    position: fixed;
+    left: calc(var(--panel-w) + 12px);
+    top: 50%;
+    transform: translateY(-50%);
+    width: 220px;
+    background: rgba(247,245,240,0.98);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(200,168,130,0.4);
+    border-radius: var(--radius);
+    z-index: 200;
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+    box-shadow: 0 8px 32px rgba(42,39,35,0.12);
+  }
+  #reverse-modal.visible { display: flex; }
+  .rev-label {
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .rev-textarea {
+    background: white;
+    border: 1px solid var(--fog);
+    border-radius: var(--radius);
+    padding: 8px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 12px;
+    color: var(--ink);
+    resize: none;
+    outline: none;
+    min-height: 60px;
+    line-height: 1.5;
+  }
+  .rev-textarea:focus { border-color: var(--accent); }
+  .rev-actions { display: flex; gap: 6px; }
+  .rev-btn {
+    flex: 1;
+    padding: 7px;
+    border-radius: var(--radius);
+    font-size: 10px;
+    font-family: 'DM Sans', sans-serif;
+    cursor: pointer;
+    transition: all var(--transition);
+    letter-spacing: 0.04em;
+  }
+  .rev-btn.primary { background: var(--ink); color: var(--off-white); border: none; }
+  .rev-btn.primary:hover { background: #3d3a35; }
+  .rev-btn.secondary { background: none; border: 1px solid var(--fog); color: var(--ink-light); }
+  .rev-btn.secondary:hover { border-color: var(--ink-faint); color: var(--ink); }
+
+  /* ── DROP ZONE for posting ── */
+  #drop-zone {
+    position: fixed;
+    inset: 0;
+    left: var(--panel-w);
+    z-index: 50;
+    pointer-events: none;
+    display: none;
+  }
+  #drop-zone.active { display: block; pointer-events: all; }
+  #drop-zone::after {
+    content: 'release to post here';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: rgba(247,245,240,0.8);
+    padding: 8px 16px;
+    border-radius: 20px;
+    border: 1px solid rgba(200,168,130,0.3);
+    backdrop-filter: blur(4px);
+  }
+
+  /* dragging image from thumb */
+  #dragging-thumb {
+    position: fixed;
+    pointer-events: none;
+    z-index: 300;
+    display: none;
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: 0 12px 40px rgba(42,39,35,0.2);
+    transform: scale(0.9);
+    transition: transform 0.1s;
+  }
+  #dragging-thumb img { width: 100px; height: 100px; object-fit: cover; display: block; }
+
+  /* caption overlay when placing a post */
+  #caption-overlay {
+    position: fixed;
+    z-index: 250;
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+  }
+  #caption-overlay.visible { display: flex; }
+  #caption-overlay img {
+    width: 140px;
+    height: 140px;
+    object-fit: cover;
+    border-radius: var(--radius);
+    border: 1px solid var(--fog);
+    box-shadow: 0 8px 32px rgba(42,39,35,0.12);
+  }
+  #caption-input {
+    width: 200px;
+    background: white;
+    border: 1px solid var(--fog);
+    border-radius: var(--radius);
+    padding: 8px 10px;
+    font-family: 'Cormorant', serif;
+    font-style: italic;
+    font-size: 13px;
+    color: var(--ink);
+    outline: none;
+    text-align: center;
+    transition: border-color var(--transition);
+  }
+  #caption-input:focus { border-color: var(--accent); }
+  #caption-input::placeholder { color: var(--ink-faint); }
+  .caption-actions { display: flex; gap: 6px; }
+  .cap-btn {
+    padding: 6px 14px;
+    border-radius: var(--radius);
+    font-size: 10px;
+    font-family: 'DM Sans', sans-serif;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    transition: all var(--transition);
+  }
+  .cap-btn.primary { background: var(--ink); color: var(--off-white); border: none; }
+  .cap-btn.primary:hover { background: #3d3a35; }
+  .cap-btn.cancel { background: none; border: 1px solid var(--fog); color: var(--ink-light); }
+  .cap-btn.cancel:hover { border-color: var(--ink-faint); }
+
+  /* ── GHOST SQUARES ── */
+  .ghost-card {
+    position: absolute;
+    pointer-events: none;
+    transform-origin: center center;
+    will-change: transform, opacity;
+  }
+  .ghost-inner {
+    width: 140px;
+    height: 140px;
+    border: 1.5px dashed var(--fog);
+    border-radius: var(--radius);
+    background: rgba(247,245,240,0.4);
+    transition: opacity 0.4s ease;
+  }
+  .ghost-card.current .ghost-inner {
+    opacity: 0.5;
+    border-color: var(--ink-faint);
+  }
+  .ghost-card.old .ghost-inner {
+    opacity: 0.25;
+    border-color: var(--fog);
+  }
+
+  /* ── NEAREST OUTLINE ── */
+  .nearest-outline {
+    position: absolute;
+    pointer-events: none;
+    transform-origin: center center;
+    will-change: transform;
+  }
+  .nearest-outline-inner {
+    width: 152px;
+    height: 152px;
+    border: 1.5px solid var(--accent);
+    border-radius: calc(var(--radius) + 2px);
+    background: transparent;
+    position: relative;
+    top: -6px;
+    left: -6px;
+    transition: opacity 0.6s ease;
+    box-shadow: 0 0 0 3px rgba(200,168,130,0.12);
+  }
+
+  /* ghost toggle row */
+  .ghost-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    background: white;
+    border: 1px solid var(--fog);
+    border-radius: var(--radius);
+    margin-top: 6px;
+    cursor: pointer;
+    transition: border-color var(--transition);
+  }
+  .ghost-toggle-row:hover { border-color: var(--ink-faint); }
+  .ghost-toggle-label {
+    font-size: 10px;
+    color: var(--ink-light);
+    letter-spacing: 0.04em;
+  }
+  .toggle-pill {
+    width: 28px;
+    height: 16px;
+    border-radius: 8px;
+    background: var(--fog);
+    position: relative;
+    transition: background var(--transition);
+    flex-shrink: 0;
+  }
+  .toggle-pill.on { background: var(--ink); }
+  .toggle-pill::after {
+    content: '';
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background: white;
+    border-radius: 50%;
+    top: 3px;
+    left: 3px;
+    transition: transform var(--transition);
+  }
+  .toggle-pill.on::after { transform: translateX(12px); }
+
+  /* ── TOAST ── */
+  #toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--ink);
+    color: var(--off-white);
+    padding: 8px 18px;
+    border-radius: 20px;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    z-index: 500;
+    opacity: 0;
+    transition: all 0.3s ease;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  #toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+
+  /* ── POST DETAIL ── */
+  #post-detail {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: white;
+    border: 1px solid var(--fog);
+    border-radius: var(--radius);
+    z-index: 400;
+    display: none;
+    flex-direction: column;
+    width: 320px;
+    box-shadow: 0 16px 60px rgba(42,39,35,0.15);
+  }
+  #post-detail.visible { display: flex; }
+  #post-detail img {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+  }
+  .post-detail-body {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .post-detail-caption {
+    font-family: 'Cormorant', serif;
+    font-style: italic;
+    font-size: 15px;
+    color: var(--ink);
+    line-height: 1.6;
+  }
+  .post-detail-meta {
+    font-size: 9px;
+    color: var(--ink-faint);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .post-detail-actions { display: flex; gap: 8px; }
+  .det-btn {
+    flex: 1;
+    padding: 8px;
+    border-radius: var(--radius);
+    font-size: 10px;
+    font-family: 'DM Sans', sans-serif;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    transition: all var(--transition);
+    text-align: center;
+  }
+  .det-btn.primary { background: var(--ink); color: var(--off-white); border: none; }
+  .det-btn.primary:hover { background: #3d3a35; }
+  .det-btn.secondary { background: none; border: 1px solid var(--fog); color: var(--ink-light); }
+  .det-btn.secondary:hover { border-color: var(--ink-faint); }
+  .det-btn.accent-btn { background: none; border: 1px solid rgba(200,168,130,0.5); color: var(--accent); }
+  .det-btn.accent-btn:hover { border-color: var(--accent); background: rgba(200,168,130,0.05); }
+
+  /* overlay backdrop */
+  #backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(42,39,35,0.15);
+    backdrop-filter: blur(2px);
+    z-index: 350;
+    display: none;
+  }
+  #backdrop.visible { display: block; }
+
+  /* scrollbar styling */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--fog); border-radius: 2px; }
+
+  /* generate status text */
+  #gen-status {
+    font-size: 9px;
+    color: var(--ink-faint);
+    text-align: center;
+    letter-spacing: 0.04em;
+    min-height: 14px;
+    padding: 0 0 4px;
+  }
+</style>
+</head>
+<body>
+
+<!-- CANVAS -->
+<div id="canvas">
+  <div id="space"></div>
+</div>
+<div id="drag-zone"></div>
+
+<!-- LOST POPUP -->
+<div id="lost-popup">
+  <div id="lost-popup-label">nearest post</div>
+  <div id="lost-popup-post"></div>
+  <button id="lost-popup-btn" onclick="navigateToNearest()">go there + reverse engineer</button>
+  <div id="lost-popup-dismiss" onclick="closeLostPopup()">dismiss</div>
+</div>
+
+<!-- SIDEBAR -->
+<div id="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-title">Semantic Space</div>
+    <div class="sidebar-sub">navigate by creation</div>
+  </div>
+
+  <div id="thumb-area">
+    <!-- thumbnail -->
+    <div id="thumb-display">
+      <div id="thumb-blank">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <circle cx="9" cy="9" r="2"/>
+          <path d="m21 15-5-5L5 21"/>
+        </svg>
+        <span>generate to begin</span>
+      </div>
+      <img id="thumb-img" style="display:none;" alt="current">
+    </div>
+
+    <!-- history nav -->
+    <div id="history-nav">
+      <button class="hist-btn" id="hist-prev" disabled>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M6 2L3 5l3 3"/>
+        </svg>
+        prev
+      </button>
+      <span id="history-label">history</span>
+      <button class="hist-btn" id="hist-next" disabled>
+        next
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M4 2l3 3-3 3"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- prompt section -->
+    <div id="prompt-section">
+      <div class="prompt-block" id="primary-block">
+        <div class="prompt-label">prompt</div>
+        <textarea class="prompt-input" id="primary-prompt" placeholder="describe an image..." rows="3"></textarea>
+        <div class="prompt-actions">
+          <button class="btn-gen" id="btn-generate">generate</button>
+          <button class="btn-live" id="btn-live">live</button>
+        </div>
+      </div>
+      <!-- split block: reverse-engineered prompt appears here -->
+      <div class="prompt-block" id="reverse-block" style="display:none; border-color: rgba(200,168,130,0.3);">
+        <div class="prompt-label" style="color: var(--accent);">from post</div>
+        <textarea class="prompt-input" id="reverse-prompt" placeholder="" rows="3"></textarea>
+        <div class="prompt-actions">
+          <button class="btn-gen" id="btn-generate-reverse" style="background: var(--accent);">generate</button>
+          <button class="rev-dismiss" onclick="dismissReverse()" style="background:none;border:1px solid var(--fog);color:var(--ink-faint);border-radius:var(--radius);padding:6px 8px;font-size:10px;cursor:pointer;">✕</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="gen-status"></div>
+
+    <!-- ghost toggle -->
+    <div class="ghost-toggle-row" id="ghost-toggle-row" onclick="toggleGhosts()">
+      <span class="ghost-toggle-label">show ghost positions</span>
+      <div class="toggle-pill on" id="ghost-toggle-pill"></div>
+    </div>
+
+    <!-- defaults toggle -->
+    <div class="ghost-toggle-row" id="defaults-toggle-row" onclick="toggleDefaults()">
+      <span class="ghost-toggle-label">show default posts</span>
+      <div class="toggle-pill on" id="defaults-toggle-pill"></div>
+    </div>
+
+    <!-- generating indicator -->
+    <div class="generating-indicator" id="gen-indicator">
+      <div class="dot-pulse">
+        <span></span><span></span><span></span>
+      </div>
+      <span id="gen-indicator-text">generating</span>
+    </div>
+  </div>
+
+  <!-- bottom controls -->
+  <div id="sidebar-bottom">
+    <button class="icon-btn" id="btn-my-posts" title="My posts">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3">
+        <rect x="1" y="1" width="5" height="5" rx="1"/>
+        <rect x="8" y="1" width="5" height="5" rx="1"/>
+        <rect x="1" y="8" width="5" height="5" rx="1"/>
+        <rect x="8" y="8" width="5" height="5" rx="1"/>
+      </svg>
+    </button>
+    <button class="icon-btn" id="btn-admin" title="Admin">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3">
+        <path d="M7 1v2M7 11v2M1 7h2M11 7h2M2.93 2.93l1.41 1.41M9.66 9.66l1.41 1.41M2.93 11.07l1.41-1.41M9.66 4.34l1.41-1.41"/>
+        <circle cx="7" cy="7" r="2.5"/>
+      </svg>
+    </button>
+    <button class="icon-btn" id="btn-models" title="Model settings">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3">
+        <path d="M2 4h10M2 7h10M2 10h10"/>
+        <circle cx="4" cy="4" r="1.2" fill="var(--off-white)" stroke="currentColor" stroke-width="1.3"/>
+        <circle cx="9" cy="7" r="1.2" fill="var(--off-white)" stroke="currentColor" stroke-width="1.3"/>
+        <circle cx="5" cy="10" r="1.2" fill="var(--off-white)" stroke="currentColor" stroke-width="1.3"/>
+      </svg>
+    </button>
+    <div style="margin-left:auto; font-size:9px; color:var(--ink-faint); letter-spacing:0.04em;" id="post-count">0 posts</div>
+  </div>
+</div>
+
+<!-- ADMIN PANEL -->
+<div id="admin-panel">
+  <div style="font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-faint);">populate space</div>
+  <div>
+    <label>number of posts</label>
+    <input type="number" id="admin-count" min="1" max="200" value="20" placeholder="20">
+  </div>
+  <button class="btn-populate" id="btn-populate">populate</button>
+  <div class="admin-progress" id="admin-progress"></div>
+</div>
+
+<!-- MY POSTS PANEL -->
+<div id="my-posts-panel">
+  <div class="panel-head">my posts</div>
+  <div id="my-posts-grid">
+    <div class="my-post-empty">no posts yet — drag your thumbnail to post</div>
+  </div>
+</div>
+
+<!-- MODEL PANEL -->
+<div id="model-panel">
+  <div style="font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-faint);">model settings</div>
+  <div class="model-row">
+    <label>image generation</label>
+    <input type="text" id="model-flux" value="black-forest-labs/flux-schnell">
+  </div>
+  <div class="model-row">
+    <label>language model</label>
+    <input type="text" id="model-llm" value="openai/gpt-5">
+  </div>
+  <div class="model-row">
+    <label>embedding model</label>
+    <input type="text" id="model-embed" value="beautyyuyanli/multilingual-e5-large:a06276a89f1a902d5fc225a9ca32b6e8e6292b7f3b136518878da97c458e2bad">
+  </div>
+  <div class="model-row">
+    <label>proxy auth token</label>
+    <input type="password" id="model-auth" placeholder="paste token here" autocomplete="off">
+  </div>
+  <button onclick="saveModels()" class="btn-gen" style="margin-top:2px;">save</button>
+</div>
+
+<!-- DRAGGING THUMB -->
+<div id="dragging-thumb"><img id="dragging-thumb-img" alt=""></div>
+<div id="drop-zone"></div>
+
+<!-- CAPTION OVERLAY -->
+<div id="caption-overlay">
+  <img id="caption-preview-img" alt="">
+  <input type="text" id="caption-input" placeholder="add a caption (optional)">
+  <div class="caption-actions">
+    <button class="cap-btn cancel" onclick="cancelPost()">cancel</button>
+    <button class="cap-btn primary" onclick="confirmPost()">post</button>
+  </div>
+</div>
+
+<!-- POST DETAIL -->
+<div id="backdrop" onclick="closeDetail()"></div>
+<div id="post-detail">
+  <img id="detail-img" alt="">
+  <div class="post-detail-body">
+    <div class="post-detail-caption" id="detail-caption"></div>
+    <div class="post-detail-meta" id="detail-meta"></div>
+    <div class="post-detail-actions">
+      <button class="det-btn accent-btn" id="btn-use-as-start">navigate near</button>
+      <button class="det-btn secondary" onclick="closeDetail()">close</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<script>
+// ─────────────────────────────────────────────
+// CONFIGURATION
+// ─────────────────────────────────────────────
+const PROXY = "https://itp-ima-replicate-proxy.web.app/api/create_n_get";
+let AUTH_TOKEN_VAR = localStorage.getItem('semanticSpace_token') || ""; // loaded from settings
+
+let MODELS = {
+  flux: "black-forest-labs/flux-schnell",
+  llm: "openai/gpt-5",
+  embed: "beautyyuyanli/multilingual-e5-large:a06276a89f1a902d5fc225a9ca32b6e8e6292b7f3b136518878da97c458e2bad"
+};
+
+// ─────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────
+let posts = [];         // all posts
+let history = [];       // generation history {img, prompt, x, y, embedding}
+let histIdx = -1;       // current history pointer (0 = latest)
+let currentThumb = null; // { img, prompt, embedding, umapX, umapY }
+let activeNearestPost = null; // post currently outlined after generate
+let nearestOutlineTimer = null;
+let showGhosts = true;  // toggle for ghost squares
+let showDefaults = true; // toggle for default seed posts
+let viewX = 0, viewY = 0; // viewport offset
+let anchorX = 0, anchorY = 0; // home position — updated on generate/teleport
+const EXPLORE_RADIUS = 500; // max px you can wander from your anchor
+let isDragging = false;
+let dragStart = { x: 0, y: 0 };
+let viewStart = { x: 0, y: 0 };
+let liveMode = false;
+let liveTimer = null;
+let isGenerating = false;
+let capturePost = null; // staging area for post before caption
+let detailPost = null;
+let adminMode = false;
+let myPostsOpen = false;
+let modelPanelOpen = false;
+const DRAG_RADIUS = 90; // px — max drag distance per gesture (matches drag zone visual)
+// Fade is computed dynamically from screen size in updateCardTransforms:
+// starts fading at DRAG_RADIUS, fully invisible at screen edge
+
+
+// ─────────────────────────────────────────────
+// DEFAULT POSTS
+// ─────────────────────────────────────────────
+
+function makeGradientDataURL(c1, c2, angle) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="140" height="140">
+    <defs>
+      <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="${c1}"/>
+        <stop offset="100%" stop-color="${c2}"/>
+      </linearGradient>
+    </defs>
+    <rect width="140" height="140" fill="url(#g)"/>
+  </svg>`;
+  return 'data:image/svg+xml;base64,' + btoa(svg);
+}
+
+const RAW_DEFAULT_POSTS = [
+  // ── nature / landscape cluster ──
+  { prompt: "northern lights over frozen lake, pine silhouettes, deep green and violet sky", caption: "somewhere in lapland", x: -800, y: -600, c1: "#1a3a2a", c2: "#4a1a6a" },
+  { prompt: "dense fog over mountain forest, early morning light filtering through", caption: "", x: -750, y: -450, c1: "#8a9a8a", c2: "#c4cfc4" },
+  { prompt: "aerial view of winding river through autumn forest, red and gold canopy", caption: "october from above", x: -900, y: -350, c1: "#8a3a10", c2: "#d4a030" },
+  { prompt: "tide pools with sea anemones and starfish, coastal morning light", caption: "", x: -950, y: -550, c1: "#1a4a6a", c2: "#4a8aaa" },
+  { prompt: "terraced rice fields in morning mist, green and golden", caption: "bali, 6am", x: -700, y: -700, c1: "#3a6a2a", c2: "#aac870" },
+
+  // ── urban / night cluster ──
+  { prompt: "neon-lit rainy street at night, reflections on wet pavement, cyberpunk", caption: "", x: 600, y: -500, c1: "#0a0a1a", c2: "#2a0a4a" },
+  { prompt: "night market in southeast asia, lanterns and food stalls, warm glow", caption: "friday night", x: 750, y: -400, c1: "#3a1a05", c2: "#8a4a10" },
+  { prompt: "geometric shadows on white architectural surfaces, midday sun", caption: "", x: 500, y: -650, c1: "#d8d0c8", c2: "#f0ece4" },
+  { prompt: "industrial factory at night, steam and orange light, long exposure", caption: "", x: 850, y: -600, c1: "#1a0a05", c2: "#4a2a10" },
+
+  // ── still life / intimate cluster ──
+  { prompt: "minimalist white ceramic vase with dried wildflowers, soft window light", caption: "", x: -200, y: 600, c1: "#e8e0d0", c2: "#c8b898" },
+  { prompt: "close-up of vinyl record on turntable, warm amber evening glow", caption: "side b", x: -100, y: 750, c1: "#1a1005", c2: "#5a3a15" },
+  { prompt: "candles on dark wooden table, warm bokeh background, intimate", caption: "", x: -300, y: 700, c1: "#2a1505", c2: "#8a5a20" },
+  { prompt: "old typewriter on wooden desk with scattered papers, afternoon light", caption: "unfinished draft", x: -50, y: 850, c1: "#8a7a60", c2: "#c8b890" },
+
+  // ── macro / texture cluster ──
+  { prompt: "macro shot of morning dew on spiderweb, bokeh background", caption: "", x: 200, y: 700, c1: "#a0b8c8", c2: "#d8ecf4" },
+  { prompt: "close-up of peacock feather, iridescent colors, extreme detail", caption: "", x: 350, y: 600, c1: "#0a4a2a", c2: "#2a8a5a" },
+  { prompt: "vintage clock mechanism, gears and springs, macro photography", caption: "", x: 300, y: 800, c1: "#7a6040", c2: "#b89060" },
+
+  // ── sky / vast cluster ──
+  { prompt: "salt flats at sunrise, perfect mirror reflection of sky, vast", caption: "uyuni", x: 100, y: -800, c1: "#c8d8e8", c2: "#f0f4f8" },
+  { prompt: "thunderstorm over prairie, dramatic sky and lightning, wide angle", caption: "", x: 200, y: -900, c1: "#1a1a2a", c2: "#4a3a10" },
+  { prompt: "hot air balloons over cappadocia at sunrise, pastel sky", caption: "", x: -100, y: -850, c1: "#e8c8a0", c2: "#f4e0c8" },
+  { prompt: "snowy owl in flight against grey winter sky, motion blur wings", caption: "", x: -200, y: -750, c1: "#c8d0d8", c2: "#e8ecf0" },
+];
+
+function buildDefaultPosts() {
+  return RAW_DEFAULT_POSTS.map((d, i) => ({
+    id: 'default_' + i,
+    timestamp: 0,
+    imageDataURL: makeGradientDataURL(d.c1, d.c2),
+    userCaption: d.caption,
+    autoCaption: d.prompt,
+    promptUsed: d.prompt,
+    embedding: localEmbedding(d.prompt), // pre-baked local embedding
+    embeddingType: 'local',
+    umapX: d.x,
+    umapY: d.y,
+    isUserPost: false,
+    isDefault: true
+  }));
+}
+
+function getVisiblePosts() {
+  if (showDefaults) return posts;
+  return posts.filter(p => !p.isDefault);
+}
+
+function toggleDefaults() {
+  showDefaults = !showDefaults;
+  document.getElementById('defaults-toggle-pill').classList.toggle('on', showDefaults);
+  renderPosts();
+  renderGhosts();
+  updatePostCount();
+}
+
+// ─────────────────────────────────────────────
+// LOAD FROM LOCALSTORAGE
+// ─────────────────────────────────────────────
+function loadState() {
+  try {
+    // clear any legacy persisted data
+    localStorage.removeItem('semanticSpace_posts');
+    localStorage.removeItem('semanticSpace_history');
+    // posts and history always start fresh
+    const savedModels = localStorage.getItem('semanticSpace_models');
+    if (savedModels) MODELS = { ...MODELS, ...JSON.parse(savedModels) };
+    posts = buildDefaultPosts();
+    syncModelInputs();
+    renderPosts();
+    renderGhosts();
+    updateHistoryNav();
+    updatePostCount();
+    navigateToCentroid();
+  } catch(e) { console.warn('Load error', e); }
+}
+
+function saveState() {
+  // nothing to persist — posts and history reset on refresh
+  // only models and token are saved (via saveModels)
+}
+
+function saveModels() {
+  MODELS.flux = document.getElementById('model-flux').value.trim();
+  MODELS.llm = document.getElementById('model-llm').value.trim();
+  MODELS.embed = document.getElementById('model-embed').value.trim();
+  const token = document.getElementById('model-auth').value.trim();
+  if (token) AUTH_TOKEN_VAR = token;
+  localStorage.setItem('semanticSpace_models', JSON.stringify(MODELS));
+  if (token) localStorage.setItem('semanticSpace_token', token);
+  toast('saved');
+}
+function syncModelInputs() {
+  document.getElementById('model-flux').value = MODELS.flux;
+  document.getElementById('model-llm').value = MODELS.llm;
+  document.getElementById('model-embed').value = MODELS.embed;
+  // show placeholder dots if token is saved, don't expose the actual value
+  const saved = localStorage.getItem('semanticSpace_token');
+  if (saved) document.getElementById('model-auth').placeholder = 'token saved ✓';
+}
+
+// ─────────────────────────────────────────────
+// REPLICATE CALLS
+// ─────────────────────────────────────────────
+async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function replicateCall(model, input) {
+  const res = await fetch(PROXY, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${AUTH_TOKEN_VAR}`
+    },
+    body: JSON.stringify({ model, input })
+  });
+  if (res.status === 429) throw new Error('rate limited (429) — wait a moment and try again');
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  return data;
+}
+
+async function generateImage(prompt) {
+  const data = await replicateCall(MODELS.flux, { prompt, aspect_ratio: "1:1" });
+  let url = null;
+  if (Array.isArray(data.output)) url = data.output[0];
+  else if (typeof data.output === 'string') url = data.output;
+  else if (data.output?.url) url = data.output.url;
+  if (!url) throw new Error('No image URL in response');
+  // fetch as blob and convert to data URL for local storage
+  const blob = await fetch(url).then(r => r.blob());
+  return await blobToDataURL(blob);
+}
+
+async function generateEmbedding(text, useLocal = false) {
+  if (useLocal) return localEmbedding(text);
+  try {
+    const data = await replicateCall(MODELS.embed, {
+      texts: JSON.stringify([text]),
+      batch_size: 1
+    });
+    let vec = null;
+    if (Array.isArray(data.output)) vec = data.output[0];
+    else if (Array.isArray(data)) vec = data[0];
+    if (!vec || !Array.isArray(vec)) throw new Error('No embedding in response');
+    return vec;
+  } catch(e) {
+    console.warn('Remote embedding failed, falling back to local:', e.message);
+    return localEmbedding(text);
+  }
+}
+
+// Local text embedding: character n-gram frequency vector, 1024 dims
+// Matches remote model output dimension so cosine similarity works across both
+function localEmbedding(text) {
+  const t = text.toLowerCase().replace(/[^a-z0-9 ]/g, ' ');
+  const dims = 1024;
+  const vec = new Array(dims).fill(0);
+  const words = t.split(' ').filter(w => w.length > 0);
+  for (const w of words) {
+    // word unigram
+    let h = 0;
+    for (let i = 0; i < w.length; i++) h = (Math.imul(31, h) + w.charCodeAt(i)) | 0;
+    vec[(h >>> 0) % dims] += 1.0;
+    // character bigrams
+    for (let i = 0; i < w.length - 1; i++) {
+      let h2 = (Math.imul(31, w.charCodeAt(i)) + w.charCodeAt(i + 1)) | 0;
+      vec[(h2 >>> 0) % dims] += 0.5;
+    }
+    // character trigrams
+    for (let i = 0; i < w.length - 2; i++) {
+      let h3 = (Math.imul(31, Math.imul(31, w.charCodeAt(i)) + w.charCodeAt(i+1)) + w.charCodeAt(i+2)) | 0;
+      vec[(h3 >>> 0) % dims] += 0.3;
+    }
+  }
+  // word bigrams
+  for (let i = 0; i < words.length - 1; i++) {
+    let h = 0;
+    const bg = words[i] + '_' + words[i + 1];
+    for (let j = 0; j < bg.length; j++) h = (Math.imul(31, h) + bg.charCodeAt(j)) | 0;
+    vec[(h >>> 0) % dims] += 0.8;
+  }
+  // word trigrams
+  for (let i = 0; i < words.length - 2; i++) {
+    let h = 0;
+    const tg = words[i] + '_' + words[i+1] + '_' + words[i+2];
+    for (let j = 0; j < tg.length; j++) h = (Math.imul(31, h) + tg.charCodeAt(j)) | 0;
+    vec[(h >>> 0) % dims] += 0.6;
+  }
+  // L2 normalize
+  const norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0)) || 1;
+  return vec.map(v => v / norm);
+}
+
+async function llmCall(prompt) {
+  const data = await replicateCall(MODELS.llm, {
+    prompt,
+    max_new_tokens: 300,
+    temperature: 0.8
+  });
+  if (Array.isArray(data.output)) return data.output.join('');
+  if (typeof data.output === 'string') return data.output;
+  throw new Error('No LLM output');
+}
+
+async function autoCaption(prompt) {
+  // Use the flux prompt itself as the auto-caption for embedding purposes
+  // This avoids an extra LLM call and prompt describes the image well
+  return prompt;
+}
+
+async function reverseEngineerPrompt(postPrompt, postCaption) {
+  const context = postCaption ? `"${postPrompt}" — captioned: "${postCaption}"` : `"${postPrompt}"`;
+  const sysprompt = `You are a creative prompt engineer. Given a description of an image, generate a closely related but distinct image prompt that would produce something visually nearby but not identical. Return ONLY the prompt, nothing else. Keep it under 25 words.`;
+  return await llmCall(`${sysprompt}\n\nOriginal: ${context}\n\nRelated prompt:`);
+}
+
+// ─────────────────────────────────────────────
+// UMAP
+// ─────────────────────────────────────────────
+
+// Navigate to the centroid of all placed posts
+function navigateToCentroid() {
+  const placed = posts.filter(p => p.umapX !== null && p.umapX !== undefined);
+  if (placed.length === 0) return;
+  const cx = placed.reduce((s, p) => s + p.umapX, 0) / placed.length;
+  const cy = placed.reduce((s, p) => s + p.umapY, 0) / placed.length;
+  navigateTo(cx, cy, true);
+}
+
+// Full UMAP recompute — only call on batch operations (load, admin populate)
+// This is stable: it sets positions for all posts at once and should not be
+// called when adding single posts (use placePostByNeighbors instead)
+function recomputeUMAP() {
+  const postsWithEmbed = posts.filter(p => p.embedding && p.embedding.length > 0);
+  if (postsWithEmbed.length < 4) {
+    postsWithEmbed.forEach(p => {
+      if (p.umapX === null || p.umapX === undefined) {
+        p.umapX = (Math.random() - 0.5) * 2000;
+        p.umapY = (Math.random() - 0.5) * 2000;
+      }
+    });
+    return;
+  }
+  try {
+    const data = postsWithEmbed.map(p => p.embedding);
+    const nNeighbors = Math.min(15, postsWithEmbed.length - 1);
+    const umap = new UMAP({ nComponents: 2, nNeighbors, minDist: 0.1 });
+    const result = umap.fit(data);
+    const xs = result.map(r => r[0]);
+    const ys = result.map(r => r[1]);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const rangeX = maxX - minX || 1;
+    const rangeY = maxY - minY || 1;
+    const scale = 3000;
+    postsWithEmbed.forEach((p, i) => {
+      p.umapX = ((result[i][0] - minX) / rangeX - 0.5) * scale;
+      p.umapY = ((result[i][1] - minY) / rangeY - 0.5) * scale;
+    });
+  } catch(e) {
+    console.warn('UMAP failed, using random positions', e);
+    postsWithEmbed.forEach(p => {
+      if (p.umapX === null || p.umapX === undefined) {
+        p.umapX = (Math.random() - 0.5) * 3000;
+        p.umapY = (Math.random() - 0.5) * 3000;
+      }
+    });
+  }
+}
+
+// Stable single-post placement: interpolate from K nearest neighbors in 2D
+// Does NOT re-run UMAP, so existing posts never move
+function placePostByNeighbors(post) {
+  const jitter = 80;
+  const placed = posts.filter(p => p.id !== post.id && p.umapX !== null && p.umapX !== undefined && p.embedding);
+  if (placed.length === 0) {
+    post.umapX = (Math.random() - 0.5) * 2000;
+    post.umapY = (Math.random() - 0.5) * 2000;
+    return;
+  }
+  // only compare same embedding type — never mix local and remote
+  const sameType = placed.filter(p => p.embeddingType === post.embeddingType);
+  const pool = sameType.length >= 2 ? sameType : placed;
+  const sims = pool.map(p => ({ post: p, sim: cosineSim(post.embedding, p.embedding) }));
+  sims.sort((a, b) => b.sim - a.sim);
+  const nearest = sims[0].post;
+  post.umapX = nearest.umapX + (Math.random() - 0.5) * jitter;
+  post.umapY = nearest.umapY + (Math.random() - 0.5) * jitter;
+}
+
+// Find nearest UMAP position to an embedding
+function findNearestUMAPPosition(embedding) {
+  if (!embedding || posts.length === 0) return { x: 0, y: 0 };
+  // compute cosine similarity to all posts
+  let best = null, bestSim = -Infinity;
+  for (const p of posts) {
+    if (!p.embedding) continue;
+    const sim = cosineSim(embedding, p.embedding);
+    if (sim > bestSim) { bestSim = sim; best = p; }
+  }
+  return best ? { x: best.umapX, y: best.umapY } : { x: 0, y: 0 };
+}
+
+function cosineSim(a, b) {
+  if (!a || !b) return 0;
+  const len = Math.min(a.length, b.length);
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < len; i++) { dot += a[i]*b[i]; na += a[i]*a[i]; nb += b[i]*b[i]; }
+  return dot / (Math.sqrt(na) * Math.sqrt(nb) + 1e-8);
+}
+
+// ─────────────────────────────────────────────
+// GHOST SQUARES
+// ─────────────────────────────────────────────
+
+function toggleGhosts() {
+  showGhosts = !showGhosts;
+  document.getElementById('ghost-toggle-pill').classList.toggle('on', showGhosts);
+  renderGhosts();
+}
+
+// Each history entry with a umapX/umapY gets a ghost square
+// histIdx 0 = current (50% opacity), all others = old (25%)
+function renderGhosts() {
+  // remove existing ghosts
+  spaceEl.querySelectorAll('.ghost-card').forEach(g => g.remove());
+  if (!showGhosts) return;
+
+  history.forEach((h, i) => {
+    if (h.umapX === null || h.umapX === undefined) return;
+    const ghost = document.createElement('div');
+    ghost.className = 'ghost-card ' + (i === 0 ? 'current' : 'old');
+    ghost.dataset.histIdx = i;
+    ghost.style.left = '50%';
+    ghost.style.top = '50%';
+    ghost.style.marginLeft = '-70px';
+    ghost.style.marginTop = '-70px';
+    const inner = document.createElement('div');
+    inner.className = 'ghost-inner';
+    ghost.appendChild(inner);
+    spaceEl.appendChild(ghost);
+  });
+  updateGhostTransforms();
+}
+
+function updateGhostTransforms() {
+  if (!showGhosts) return;
+  const tiltX = Math.max(-12, Math.min(12, -viewY / 80));
+  const tiltY = Math.max(-12, Math.min(12, viewX / 80));
+  const { start: fadeStart, end: fadeEnd } = getFadeDistances();
+  spaceEl.querySelectorAll('.ghost-card').forEach(ghost => {
+    const i = parseInt(ghost.dataset.histIdx);
+    const h = history[i];
+    if (!h || h.umapX === null) return;
+    const screenX = h.umapX - viewX;
+    const screenY = h.umapY - viewY;
+    const dist = Math.sqrt(screenX*screenX + screenY*screenY);
+    let opacity;
+    if (dist <= fadeStart) {
+      opacity = 1;
+    } else {
+      opacity = 1 - (dist - fadeStart) / (fadeEnd - fadeStart);
+      opacity = Math.max(0, Math.min(1, opacity));
+    }
+    const scale = 0.75 + 0.25 * (1 - Math.min(dist / fadeEnd, 1));
+    ghost.style.transform = `translate(${screenX}px, ${screenY}px) scale(${scale}) perspective(600px) rotateX(${tiltX}deg) rotateY(${tiltY}deg)`;
+    ghost.style.opacity = opacity;
+  });
+}
+
+// ─────────────────────────────────────────────
+// NEAREST OUTLINE
+// ─────────────────────────────────────────────
+
+function showNearestOutline(nearestPost) {
+  clearNearestOutline();
+  if (!nearestPost || nearestPost.umapX === null) return;
+  activeNearestPost = nearestPost;
+
+  const outline = document.createElement('div');
+  outline.className = 'nearest-outline';
+  outline.id = 'nearest-outline-el';
+  outline.style.left = '50%';
+  outline.style.top = '50%';
+  outline.style.marginLeft = '-70px';
+  outline.style.marginTop = '-70px';
+  const inner = document.createElement('div');
+  inner.className = 'nearest-outline-inner';
+  outline.appendChild(inner);
+  spaceEl.appendChild(outline);
+
+  updateNearestOutlineTransform();
+
+  // fade out after 10s
+  clearTimeout(nearestOutlineTimer);
+  nearestOutlineTimer = setTimeout(() => {
+    clearNearestOutline();
+  }, 10000);
+}
+
+function clearNearestOutline() {
+  const el = document.getElementById('nearest-outline-el');
+  if (el) el.remove();
+  activeNearestPost = null;
+}
+
+function updateNearestOutlineTransform() {
+  const el = document.getElementById('nearest-outline-el');
+  if (!el || !activeNearestPost) return;
+  const tiltX = Math.max(-12, Math.min(12, -viewY / 80));
+  const tiltY = Math.max(-12, Math.min(12, viewX / 80));
+  const screenX = activeNearestPost.umapX - viewX;
+  const screenY = activeNearestPost.umapY - viewY;
+  const dist = Math.sqrt(screenX*screenX + screenY*screenY);
+  const { start: fadeStart, end: fadeEnd } = getFadeDistances();
+  let opacity;
+  if (dist <= fadeStart) {
+    opacity = 1;
+  } else {
+    opacity = 1 - (dist - fadeStart) / (fadeEnd - fadeStart);
+    opacity = Math.max(0, Math.min(1, opacity));
+  }
+  const scale = 0.75 + 0.25 * (1 - Math.min(dist / fadeEnd, 1));
+  el.style.transform = `translate(${screenX}px, ${screenY}px) scale(${scale}) perspective(600px) rotateX(${tiltX}deg) rotateY(${tiltY}deg)`;
+  el.style.opacity = opacity;
+}
+
+// ─────────────────────────────────────────────
+// RENDER POSTS
+// ─────────────────────────────────────────────
+const spaceEl = document.getElementById('space');
+
+function renderPosts() {
+  spaceEl.innerHTML = '';
+  const visiblePosts = showDefaults ? posts : posts.filter(p => !p.isDefault);
+  for (const p of visiblePosts) {
+    if (p.umapX === undefined) continue;
+    const card = document.createElement('div');
+    card.className = 'post-card' + (p.isUserPost ? ' user-post' : '');
+    card.dataset.id = p.id;
+    card.style.left = '50%';
+    card.style.top = '50%';
+    card.style.marginLeft = '-70px'; // half of 140
+    card.style.marginTop = '-70px';
+
+    const inner = document.createElement('div');
+    inner.className = 'card-inner';
+
+    const img = document.createElement('img');
+    img.className = 'card-img';
+    img.src = p.imageDataURL || '';
+    img.alt = p.promptUsed || '';
+
+    inner.appendChild(img);
+    if (p.userCaption) {
+      const cap = document.createElement('div');
+      cap.className = 'card-caption';
+      cap.textContent = p.userCaption;
+      inner.appendChild(cap);
+    }
+    card.appendChild(inner);
+    card.addEventListener('click', (e) => { e.stopPropagation(); openPostDetail(p); });
+    spaceEl.appendChild(card);
+  }
+  updateCardTransforms();
+}
+
+// Compute fade distances based on actual post spread in UMAP space
+// so posts are always visible near the viewport regardless of coordinate scale
+function getFadeDistances() {
+  const placed = posts.filter(p => p.umapX !== null && p.umapX !== undefined);
+  if (placed.length === 0) return { start: 200, end: 1600 };
+  // use median distance from centroid as a proxy for spread
+  const cx = placed.reduce((s,p) => s + p.umapX, 0) / placed.length;
+  const cy = placed.reduce((s,p) => s + p.umapY, 0) / placed.length;
+  const dists = placed.map(p => Math.sqrt((p.umapX-cx)**2 + (p.umapY-cy)**2)).sort((a,b)=>a-b);
+  const spread = dists[Math.floor(dists.length * 0.6)] || 400; // 60th percentile distance
+  return { start: Math.max(spread * 0.4, 120), end: Math.max(spread * 2.2, 800) };
+}
+
+function updateCardTransforms() {
+  const cards = spaceEl.querySelectorAll('.post-card');
+  const tiltX = Math.max(-12, Math.min(12, -viewY / 80));
+  const tiltY = Math.max(-12, Math.min(12, viewX / 80));
+  const { start: fadeStart, end: fadeEnd } = getFadeDistances();
+
+  cards.forEach(card => {
+    const p = posts.find(x => x.id === card.dataset.id);
+    if (!p || p.umapX === undefined) return;
+    const screenX = p.umapX - viewX;
+    const screenY = p.umapY - viewY;
+    const dist = Math.sqrt(screenX*screenX + screenY*screenY);
+    let opacity;
+    if (dist <= fadeStart) {
+      opacity = 1;
+    } else {
+      opacity = 1 - (dist - fadeStart) / (fadeEnd - fadeStart);
+      opacity = Math.max(0, Math.min(1, opacity));
+    }
+    const scale = 0.75 + 0.25 * (1 - Math.min(dist / fadeEnd, 1));
+    card.style.transform = `translate(${screenX}px, ${screenY}px) scale(${scale}) perspective(600px) rotateX(${tiltX}deg) rotateY(${tiltY}deg)`;
+    card.style.opacity = opacity;
+    card.style.pointerEvents = opacity < 0.05 ? 'none' : 'auto';
+  });
+  updateGhostTransforms();
+  updateNearestOutlineTransform();
+}
+
+// ─────────────────────────────────────────────
+// VIEWPORT / DRAG
+// ─────────────────────────────────────────────
+const canvas = document.getElementById('canvas');
+const dragZone = document.getElementById('drag-zone');
+let dragStartView = { x: 0, y: 0 };
+let dragStartMouse = { x: 0, y: 0 };
+let activeDrag = false;
+
+canvas.addEventListener('mousedown', (e) => {
+  if (e.target.closest('#sidebar')) return;
+  if (e.target.closest('.post-card')) return;
+  const cx = window.innerWidth / 2;
+  const cy = window.innerHeight / 2;
+  const dx = e.clientX - cx;
+  const dy = e.clientY - cy;
+  const distFromCenter = Math.sqrt(dx*dx + dy*dy);
+  if (distFromCenter > DRAG_RADIUS * 1.5) return; // only drag from zone
+  activeDrag = true;
+  dragStartView = { x: viewX, y: viewY };
+  dragStartMouse = { x: e.clientX, y: e.clientY };
+  canvas.classList.add('dragging');
+  dragZone.classList.add('active');
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!activeDrag) return;
+  const dx = e.clientX - dragStartMouse.x;
+  const dy = e.clientY - dragStartMouse.y;
+  // clamp raw gesture to DRAG_RADIUS
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  let cdx = dx, cdy = dy;
+  if (dist > DRAG_RADIUS) {
+    cdx = dx / dist * DRAG_RADIUS;
+    cdy = dy / dist * DRAG_RADIUS;
+  }
+  let nx = dragStartView.x - cdx;
+  let ny = dragStartView.y - cdy;
+  // hard clamp total offset from anchor to EXPLORE_RADIUS
+  const adx = nx - anchorX;
+  const ady = ny - anchorY;
+  const aDist = Math.sqrt(adx*adx + ady*ady);
+  if (aDist > EXPLORE_RADIUS) {
+    nx = anchorX + adx / aDist * EXPLORE_RADIUS;
+    ny = anchorY + ady / aDist * EXPLORE_RADIUS;
+  }
+  viewX = nx;
+  viewY = ny;
+  updateCardTransforms();
+});
+
+window.addEventListener('mouseup', () => {
+  if (activeDrag) {
+    activeDrag = false;
+    canvas.classList.remove('dragging');
+    dragZone.classList.remove('active');
+  }
+});
+
+// double-click inside drag zone = show lost popup
+canvas.addEventListener('dblclick', (e) => {
+  if (e.target.closest('#sidebar')) return;
+  const cx = window.innerWidth / 2;
+  const cy = window.innerHeight / 2;
+  const dx = e.clientX - cx;
+  const dy = e.clientY - cy;
+  const distFromCenter = Math.sqrt(dx*dx + dy*dy);
+  if (distFromCenter > DRAG_RADIUS * 1.5) return;
+  showLostPopup();
+});
+
+function findNearestPostByDistance() {
+  // find the post with the smallest UMAP-space distance from current view position
+  const visible = posts.filter(p => p.umapX !== null && p.umapX !== undefined);
+  if (visible.length === 0) return null;
+  let nearest = null;
+  let bestDist = Infinity;
+  visible.forEach(p => {
+    const dx = p.umapX - viewX;
+    const dy = p.umapY - viewY;
+    const d = Math.sqrt(dx*dx + dy*dy);
+    if (d < bestDist) { bestDist = d; nearest = p; }
+  });
+  return nearest;
+}
+
+function showLostPopup() {
+  const nearest = findNearestPostByDistance();
+  const popup = document.getElementById('lost-popup');
+  const label = document.getElementById('lost-popup-post');
+  if (!nearest) {
+    label.textContent = 'no posts in space yet';
+    document.getElementById('lost-popup-btn').style.display = 'none';
+  } else {
+    const desc = nearest.userCaption || nearest.promptUsed || nearest.autoCaption || '';
+    label.textContent = desc.length > 60 ? desc.slice(0, 57) + '…' : desc;
+    document.getElementById('lost-popup-btn').style.display = 'block';
+    popup._nearest = nearest;
+  }
+  popup.classList.add('visible');
+}
+
+function closeLostPopup() {
+  document.getElementById('lost-popup').classList.remove('visible');
+}
+
+async function navigateToNearest() {
+  const popup = document.getElementById('lost-popup');
+  const nearest = popup._nearest;
+  closeLostPopup();
+  if (!nearest) return;
+  // teleport to the post
+  navigateTo(nearest.umapX, nearest.umapY, true);
+  // auto trigger reverse engineer
+  await triggerReverseEngineer(nearest);
+}
+
+// ─────────────────────────────────────────────
+// GENERATION
+// ─────────────────────────────────────────────
+function setGenerating(active, text = 'generating') {
+  isGenerating = active;
+  document.getElementById('gen-indicator').classList.toggle('active', active);
+  document.getElementById('gen-indicator-text').textContent = text;
+  document.getElementById('btn-generate').disabled = active;
+  document.getElementById('btn-generate-reverse').disabled = active;
+}
+
+function setStatus(text) {
+  document.getElementById('gen-status').textContent = text;
+}
+
+async function generate(prompt, isReverse = false) {
+  if (!prompt.trim()) { toast('enter a prompt first'); return; }
+  if (isGenerating) return;
+  setGenerating(true, 'generating image');
+  setStatus('');
+  try {
+    setStatus('creating image...');
+    const imgURL = await generateImage(prompt);
+
+    setStatus('computing embedding...');
+    const caption = await autoCaption(prompt);
+    const embedding = await generateEmbedding(caption);
+
+    // add to history
+    const histEntry = { img: imgURL, prompt, embedding, embeddingType: 'remote', umapX: null, umapY: null };
+    history.unshift(histEntry);
+    if (history.length > 50) history.pop();
+    histIdx = 0;
+
+    // update thumbnail
+    setThumb(imgURL);
+    currentThumb = { img: imgURL, prompt, embedding, embeddingType: 'remote', umapX: null, umapY: null };
+
+    // find nearest post by cosine similarity — only compare same embedding type (remote vs remote)
+    setStatus('mapping position...');
+    const remoteAnchors = posts.filter(p => p.umapX !== null && p.umapX !== undefined && p.embeddingType === 'remote' && p.embedding);
+    const allAnchors = posts.filter(p => p.umapX !== null && p.umapX !== undefined && p.embedding);
+    const anchors = remoteAnchors.length >= 1 ? remoteAnchors : allAnchors;
+    let nearestPost = null;
+    if (anchors.length > 0) {
+      let bestSim = -Infinity;
+      anchors.forEach(p => {
+        const sim = cosineSim(embedding, p.embedding);
+        if (sim > bestSim) { bestSim = sim; nearestPost = p; }
+      });
+    }
+    // if no remote anchors exist yet, fall back to local embedding comparison against all posts
+    if (!nearestPost) {
+      const localEmb = localEmbedding(prompt);
+      const localAnchors = posts.filter(p => p.umapX !== null && p.umapX !== undefined && p.embedding);
+      let bestSim = -Infinity;
+      localAnchors.forEach(p => {
+        const pEmb = p.embeddingType === 'local' ? p.embedding : localEmbedding(p.autoCaption || p.promptUsed || '');
+        const sim = cosineSim(localEmb, pEmb);
+        if (sim > bestSim) { bestSim = sim; nearestPost = p; }
+      });
+    }
+
+    // ghost position: nearest post + small jitter so it doesn't overlap exactly
+    let pos;
+    if (nearestPost) {
+      const jitter = 90;
+      pos = {
+        x: nearestPost.umapX + (Math.random() - 0.5) * jitter,
+        y: nearestPost.umapY + (Math.random() - 0.5) * jitter
+      };
+    } else {
+      pos = { x: (Math.random() - 0.5) * 2000, y: (Math.random() - 0.5) * 2000 };
+    }
+    histEntry.umapX = pos.x;
+    histEntry.umapY = pos.y;
+    // store on currentThumb so confirmPost uses the same position
+    currentThumb.umapX = pos.x;
+    currentThumb.umapY = pos.y;
+
+    // navigate there
+    navigateTo(pos.x, pos.y, true);
+
+    // show 10s nearest outline
+    if (nearestPost) showNearestOutline(nearestPost);
+
+    // refresh ghosts (new entry added to history)
+    renderGhosts();
+
+    updateHistoryNav();
+    saveState();
+    setStatus('');
+    toast('generated');
+  } catch(e) {
+    console.error(e);
+    setStatus('error — check console');
+    toast('generation failed: ' + e.message);
+  } finally {
+    setGenerating(false);
+  }
+}
+
+document.getElementById('btn-generate').addEventListener('click', () => {
+  const prompt = document.getElementById('primary-prompt').value;
+  generate(prompt, false);
+});
+
+document.getElementById('btn-generate-reverse').addEventListener('click', () => {
+  const prompt = document.getElementById('reverse-prompt').value;
+  generate(prompt, true);
+});
+
+document.getElementById('primary-prompt').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); generate(document.getElementById('primary-prompt').value); }
+});
+
+// live mode
+const btnLive = document.getElementById('btn-live');
+btnLive.addEventListener('click', () => {
+  liveMode = !liveMode;
+  btnLive.classList.toggle('on', liveMode);
+  if (liveMode) scheduleLive();
+  else { clearTimeout(liveTimer); }
+});
+
+function scheduleLive() {
+  clearTimeout(liveTimer);
+  if (!liveMode) return;
+  liveTimer = setTimeout(() => {
+    const prompt = document.getElementById('primary-prompt').value;
+    if (prompt.trim() && !isGenerating) generate(prompt);
+    scheduleLive();
+  }, 3000);
+}
+
+document.getElementById('primary-prompt').addEventListener('input', () => {
+  if (liveMode) scheduleLive();
+});
+
+// ─────────────────────────────────────────────
+// THUMBNAIL SET / DRAG TO POST
+// ─────────────────────────────────────────────
+function setThumb(imgURL) {
+  const img = document.getElementById('thumb-img');
+  const blank = document.getElementById('thumb-blank');
+  img.src = imgURL;
+  img.style.display = 'block';
+  blank.style.display = 'none';
+}
+
+// Drag thumbnail out to post
+const thumbDisplay = document.getElementById('thumb-display');
+const draggingThumb = document.getElementById('dragging-thumb');
+const draggingThumbImg = document.getElementById('dragging-thumb-img');
+const dropZone = document.getElementById('drop-zone');
+let thumbDragging = false;
+let thumbDragStarted = false;
+
+thumbDisplay.addEventListener('mousedown', (e) => {
+  if (!currentThumb) return;
+  e.preventDefault();
+  thumbDragging = true;
+  thumbDragStarted = false;
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!thumbDragging) return;
+  if (!thumbDragStarted && (Math.abs(e.movementX) > 3 || Math.abs(e.movementY) > 3)) {
+    thumbDragStarted = true;
+    draggingThumbImg.src = currentThumb.img;
+    draggingThumb.style.display = 'block';
+    dropZone.classList.add('active');
+  }
+  if (thumbDragStarted) {
+    draggingThumb.style.left = (e.clientX - 50) + 'px';
+    draggingThumb.style.top = (e.clientY - 50) + 'px';
+  }
+});
+
+window.addEventListener('mouseup', (e) => {
+  if (!thumbDragging) return;
+  thumbDragging = false;
+  draggingThumb.style.display = 'none';
+  dropZone.classList.remove('active');
+  if (thumbDragStarted && currentThumb && e.clientX > 280) {
+    // dropped outside sidebar — show caption input
+    capturePost = {
+      ...currentThumb,
+      umapX: currentThumb ? currentThumb.umapX : null,
+      umapY: currentThumb ? currentThumb.umapY : null,
+      dropX: e.clientX,
+      dropY: e.clientY
+    };
+    showCaptionOverlay(e.clientX, e.clientY);
+  }
+  thumbDragStarted = false;
+});
+
+// ─────────────────────────────────────────────
+// CAPTION + POST
+// ─────────────────────────────────────────────
+function showCaptionOverlay(x, y) {
+  const overlay = document.getElementById('caption-overlay');
+  document.getElementById('caption-preview-img').src = capturePost.img;
+  document.getElementById('caption-input').value = '';
+  overlay.style.left = Math.min(x - 100, window.innerWidth - 220) + 'px';
+  overlay.style.top = Math.min(y - 80, window.innerHeight - 240) + 'px';
+  overlay.classList.add('visible');
+  document.getElementById('caption-input').focus();
+}
+
+function cancelPost() {
+  document.getElementById('caption-overlay').classList.remove('visible');
+  capturePost = null;
+}
+
+async function confirmPost() {
+  if (!capturePost) return;
+  const caption = document.getElementById('caption-input').value.trim();
+  document.getElementById('caption-overlay').classList.remove('visible');
+  setGenerating(true, 'posting');
+  setStatus('embedding post...');
+  try {
+    const embedText = caption ? `${capturePost.prompt}. ${caption}` : capturePost.prompt;
+    const embedding = capturePost.embedding || await generateEmbedding(embedText);
+    // use the ghost position already computed at generate time — same as what the ghost square shows
+    const umapX = capturePost.umapX !== null && capturePost.umapX !== undefined
+      ? capturePost.umapX
+      : null;
+    const umapY = capturePost.umapY !== null && capturePost.umapY !== undefined
+      ? capturePost.umapY
+      : null;
+    const post = {
+      id: 'u_' + Date.now(),
+      timestamp: Date.now(),
+      imageDataURL: capturePost.img,
+      userCaption: caption,
+      autoCaption: capturePost.prompt,
+      promptUsed: capturePost.prompt,
+      embedding,
+      embeddingType: 'remote',
+      umapX,
+      umapY,
+      isUserPost: true
+    };
+    posts.push(post);
+    setStatus('mapping...');
+    // only recompute position if we somehow don't have a stored one
+    if (post.umapX === null) placePostByNeighbors(post);
+    renderPosts();
+    updatePostCount();
+    saveState();
+    setStatus('');
+    toast('posted');
+    // offer jump
+    const pos = { x: post.umapX, y: post.umapY };
+    showGoToPost(post);
+  } catch(e) {
+    console.error(e);
+    toast('post failed: ' + e.message);
+    setStatus('');
+  } finally {
+    setGenerating(false);
+    capturePost = null;
+  }
+}
+
+function showGoToPost(post) {
+  // small toast with go button
+  const t = document.getElementById('toast');
+  t.innerHTML = `posted <span onclick="navigateTo(${post.umapX},${post.umapY},true)" style="text-decoration:underline;cursor:pointer;margin-left:6px;">go there</span>`;
+  t.classList.add('show');
+  setTimeout(() => { t.classList.remove('show'); t.textContent = ''; }, 5000);
+}
+
+// ─────────────────────────────────────────────
+// NAVIGATION
+// ─────────────────────────────────────────────
+function navigateTo(x, y, setAnchor = true) {
+  viewX = x;
+  viewY = y;
+  if (setAnchor) {
+    anchorX = x;
+    anchorY = y;
+  }
+  updateCardTransforms();
+}
+
+// ─────────────────────────────────────────────
+// POST DETAIL + REVERSE ENGINEER
+// ─────────────────────────────────────────────
+function openPostDetail(post) {
+  detailPost = post;
+  document.getElementById('detail-img').src = post.imageDataURL;
+  document.getElementById('detail-caption').textContent = post.userCaption || post.autoCaption || post.promptUsed || '';
+  const date = new Date(post.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  document.getElementById('detail-meta').textContent = (post.isUserPost ? 'your post' : 'generated') + ' · ' + date;
+  document.getElementById('backdrop').classList.add('visible');
+  document.getElementById('post-detail').classList.add('visible');
+
+  document.getElementById('btn-use-as-start').onclick = async () => {
+    closeDetail();
+    await triggerReverseEngineer(post);
+  };
+}
+
+function closeDetail() {
+  document.getElementById('backdrop').classList.remove('visible');
+  document.getElementById('post-detail').classList.remove('visible');
+  detailPost = null;
+}
+
+async function triggerReverseEngineer(post) {
+  setGenerating(true, 'reverse engineering');
+  setStatus('generating related prompt...');
+  try {
+    const revPrompt = await reverseEngineerPrompt(post.promptUsed || post.autoCaption, post.userCaption);
+    const cleaned = revPrompt.trim().replace(/^["']|["']$/g, '');
+    const primaryVal = document.getElementById('primary-prompt').value.trim();
+    if (primaryVal) {
+      // show split
+      document.getElementById('reverse-block').style.display = 'flex';
+      document.getElementById('reverse-prompt').value = cleaned;
+    } else {
+      // just put it in primary
+      document.getElementById('primary-prompt').value = cleaned;
+    }
+    setStatus('');
+    toast('prompt ready — edit and generate');
+  } catch(e) {
+    console.error(e);
+    setStatus('');
+    toast('reverse engineer failed: ' + e.message);
+    // fallback: just use the original prompt
+    document.getElementById('primary-prompt').value = post.promptUsed || '';
+  } finally {
+    setGenerating(false);
+  }
+}
+
+function dismissReverse() {
+  document.getElementById('reverse-block').style.display = 'none';
+  document.getElementById('reverse-prompt').value = '';
+}
+
+// ─────────────────────────────────────────────
+// HISTORY NAV
+// ─────────────────────────────────────────────
+function updateHistoryNav() {
+  document.getElementById('hist-prev').disabled = histIdx >= history.length - 1;
+  document.getElementById('hist-next').disabled = histIdx <= 0;
+  document.getElementById('history-label').textContent = history.length > 0 ? `${histIdx + 1}/${history.length}` : 'history';
+}
+
+function applyHistoryEntry(idx) {
+  const h = history[idx];
+  if (!h) return;
+  // show that generation's image in thumbnail
+  if (h.img) setThumb(h.img);
+  document.getElementById('primary-prompt').value = h.prompt || '';
+  // navigate to its canvas position
+  if (h.umapX !== null && h.umapX !== undefined) {
+    navigateTo(h.umapX, h.umapY, idx === 0); // only set anchor if returning to latest
+  }
+  // mark which ghost is "current" visually
+  spaceEl.querySelectorAll('.ghost-card').forEach(g => {
+    const i = parseInt(g.dataset.histIdx);
+    g.classList.toggle('current', i === idx);
+    g.classList.toggle('old', i !== idx);
+  });
+  updateHistoryNav();
+}
+
+document.getElementById('hist-prev').addEventListener('click', () => {
+  if (histIdx < history.length - 1) {
+    histIdx++;
+    applyHistoryEntry(histIdx);
+  }
+});
+document.getElementById('hist-next').addEventListener('click', () => {
+  if (histIdx > 0) {
+    histIdx--;
+    applyHistoryEntry(histIdx);
+  }
+});
+
+// ─────────────────────────────────────────────
+// MY POSTS PANEL
+// ─────────────────────────────────────────────
+document.getElementById('btn-my-posts').addEventListener('click', () => {
+  myPostsOpen = !myPostsOpen;
+  document.getElementById('my-posts-panel').classList.toggle('visible', myPostsOpen);
+  document.getElementById('btn-my-posts').classList.toggle('active', myPostsOpen);
+  if (myPostsOpen) renderMyPosts();
+});
+
+function renderMyPosts() {
+  const grid = document.getElementById('my-posts-grid');
+  const userPosts = posts.filter(p => p.isUserPost);
+  if (userPosts.length === 0) {
+    grid.innerHTML = '<div class="my-post-empty">no posts yet — drag your thumbnail to post</div>';
+    return;
+  }
+  grid.innerHTML = '';
+  userPosts.sort((a,b) => b.timestamp - a.timestamp).forEach(p => {
+    const div = document.createElement('div');
+    div.className = 'my-post-thumb';
+    div.innerHTML = `<img src="${p.imageDataURL}" alt="">`;
+    div.addEventListener('click', () => {
+      navigateTo(p.umapX, p.umapY, true);
+      myPostsOpen = false;
+      document.getElementById('my-posts-panel').classList.remove('visible');
+      document.getElementById('btn-my-posts').classList.remove('active');
+      toast('jumped to post');
+    });
+    grid.appendChild(div);
+  });
+}
+
+function updatePostCount() {
+  const userCount = posts.filter(p => !p.isDefault).length;
+  const defCount = posts.filter(p => p.isDefault).length;
+  const label = showDefaults
+    ? `${userCount} posts + ${defCount} defaults`
+    : `${userCount} posts`;
+  document.getElementById('post-count').textContent = label;
+}
+
+// ─────────────────────────────────────────────
+// ADMIN PANEL
+// ─────────────────────────────────────────────
+document.getElementById('btn-admin').addEventListener('click', () => {
+  adminMode = !adminMode;
+  document.getElementById('admin-panel').classList.toggle('visible', adminMode);
+  document.getElementById('btn-admin').classList.toggle('active', adminMode);
+});
+
+// Diverse seed prompts for variety
+const SEED_PROMPTS = [
+  "a woman reading a book in a sunlit cafe, soft morning light",
+  "abstract oil painting of ocean waves at dusk, blue and orange",
+  "close-up of moss and lichen on ancient stone wall",
+  "neon-lit rainy street at night, reflections on wet pavement",
+  "minimalist white ceramic vase with dried wildflowers",
+  "dense fog over a mountain forest, early morning",
+  "colorful spices in ceramic bowls at a market",
+  "aerial view of a winding river through autumn forest",
+  "vintage clock mechanism, gears and springs, macro photography",
+  "child's hands holding a firefly in cupped palms, evening",
+  "geometric shadows on white architectural surfaces, midday",
+  "abandoned greenhouse overgrown with flowering vines",
+  "ink wash painting of a lone pine tree in snow",
+  "close-up of a vinyl record on a turntable, warm light",
+  "tide pools with sea anemones and starfish, coastal",
+  "person sitting in a doorway of a colorful Moroccan building",
+  "Northern Lights over a frozen lake with pine silhouettes",
+  "macro shot of a bee on a lavender flower, golden hour",
+  "industrial factory at night, steam and orange light",
+  "Japanese zen garden with raked gravel and stone",
+  "melting ice cream cone in summer heat, close-up",
+  "old wooden fishing boat on a calm blue lake",
+  "candles on a dark wooden table, warm bokeh background",
+  "snow leopard in mountain habitat, wildlife photography",
+  "hand-drawn botanical illustration of exotic plants",
+  "rustic kitchen with copper pots and fresh herbs",
+  "deep sea bioluminescent creatures, dark ocean blue",
+  "terraced rice fields in morning mist, green and golden",
+  "woman dancing with flowing fabric, motion blur",
+  "close-up of a peacock feather, iridescent colors",
+  "library at night with warm reading lamp, shadow and light",
+  "thunderstorm over prairie, dramatic sky and lightning",
+  "fresh bread loaves in artisan bakery, flour dust",
+  "coral reef teeming with tropical fish, underwater",
+  "snowy owl in flight against grey winter sky",
+  "abstract architecture of modern museum, white curves",
+  "old typewriter on wooden desk with scattered papers",
+  "hot air balloons over Cappadocia at sunrise",
+  "watercolor painting of Paris street scene, light rain",
+  "macro photograph of morning dew on spiderweb",
+  "textile merchant's shop with colorful hanging fabrics",
+  "polar bear on sea ice, vast white landscape",
+  "cyclist on winding mountain road, aerial view",
+  "night market in Southeast Asia, lanterns and food stalls",
+  "close-up of pianist's hands on ivory keys, dramatic light",
+  "salt flats at sunrise, perfect mirror reflection of sky",
+  "ancient temple ruins wrapped in tree roots",
+  "glassblower creating luminous vessel, fire and molten glass",
+  "field of sunflowers at golden hour, leading lines",
+  "storm petrel hovering over dark choppy ocean"
+];
+
+document.getElementById('btn-populate').addEventListener('click', async () => {
+  const count = parseInt(document.getElementById('admin-count').value) || 20;
+  const btn = document.getElementById('btn-populate');
+  const progress = document.getElementById('admin-progress');
+  btn.disabled = true;
+  progress.classList.add('visible');
+
+  for (let i = 0; i < count; i++) {
+    const prompt = SEED_PROMPTS[i % SEED_PROMPTS.length] + (i >= SEED_PROMPTS.length ? `, variation ${Math.floor(i / SEED_PROMPTS.length) + 1}` : '');
+    progress.textContent = `${i + 1} / ${count} — generating`;
+    try {
+      const imgURL = await generateImage(prompt);
+      progress.textContent = `${i + 1} / ${count} — embedding`;
+      const embedding = await generateEmbedding(prompt);
+      posts.push({
+        id: 'a_' + Date.now() + '_' + i,
+        timestamp: Date.now() - (count - i) * 60000,
+        imageDataURL: imgURL,
+        userCaption: '',
+        autoCaption: prompt,
+        promptUsed: prompt,
+        embedding,
+        embeddingType: 'remote',
+        umapX: null,
+        umapY: null,
+        isUserPost: false
+      });
+      // pause between posts to stay under proxy rate limit
+      if (i < count - 1) await sleep(1200);
+    } catch(e) {
+      console.warn('Admin post failed', i, e);
+      progress.textContent = `${i + 1} / ${count} — failed, continuing`;
+      await sleep(5000); // longer pause after a failure
+    }
+  }
+  setStatus('mapping space...');
+  // run UMAP on all non-default posts with real embeddings
+  const nonDefaults = posts.filter(p => !p.isDefault && p.embedding && p.embeddingType === 'remote');
+  if (nonDefaults.length >= 4) {
+    const tempPosts = posts;
+    posts = nonDefaults;
+    recomputeUMAP();
+    posts = tempPosts;
+    nonDefaults.forEach(nd => {
+      const match = posts.find(p => p.id === nd.id);
+      if (match) { match.umapX = nd.umapX; match.umapY = nd.umapY; }
+    });
+  } else {
+    // fewer than 4 — place each by neighbor similarity
+    nonDefaults.forEach(nd => {
+      if (nd.umapX === null) placePostByNeighbors(nd);
+    });
+  }
+  renderPosts();
+  renderGhosts();
+  updatePostCount();
+  saveState();
+  setStatus('');
+  navigateToCentroid();
+  progress.textContent = 'done';
+  btn.disabled = false;
+  setTimeout(() => { progress.classList.remove('visible'); }, 2000);
+  toast(`${count} posts added — navigated to center`);
+});
+
+// ─────────────────────────────────────────────
+// MODEL PANEL
+// ─────────────────────────────────────────────
+document.getElementById('btn-models').addEventListener('click', () => {
+  modelPanelOpen = !modelPanelOpen;
+  document.getElementById('model-panel').classList.toggle('visible', modelPanelOpen);
+  document.getElementById('btn-models').classList.toggle('active', modelPanelOpen);
+});
+
+// ─────────────────────────────────────────────
+// TOAST
+// ─────────────────────────────────────────────
+let toastTimer = null;
+function toast(msg) {
+  const t = document.getElementById('toast');
+  if (t.innerHTML.includes('go there')) return; // don't override go-there toast
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ─────────────────────────────────────────────
+// UTILS
+// ─────────────────────────────────────────────
+function blobToDataURL(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+// close panels on outside click
+window.addEventListener('click', (e) => {
+  if (!e.target.closest('#admin-panel') && !e.target.closest('#btn-admin') && adminMode) {
+    adminMode = false;
+    document.getElementById('admin-panel').classList.remove('visible');
+    document.getElementById('btn-admin').classList.remove('active');
+  }
+  if (!e.target.closest('#my-posts-panel') && !e.target.closest('#btn-my-posts') && myPostsOpen) {
+    myPostsOpen = false;
+    document.getElementById('my-posts-panel').classList.remove('visible');
+    document.getElementById('btn-my-posts').classList.remove('active');
+  }
+  if (!e.target.closest('#model-panel') && !e.target.closest('#btn-models') && modelPanelOpen) {
+    modelPanelOpen = false;
+    document.getElementById('model-panel').classList.remove('visible');
+    document.getElementById('btn-models').classList.remove('active');
+  }
+});
+
+// ─────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────
+loadState();
+</script>
+</body>
+</html>
