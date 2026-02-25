@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dot Grid</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #111; overflow: hidden; width: 100vw; height: 100vh; cursor: none; }
+  canvas { display: block; }
+  #status {
+    position: fixed; bottom: 16px; right: 16px;
+    font-family: monospace; font-size: 11px;
+    color: #333; user-select: none; pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="status">connecting...</div>
+
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getDatabase, ref, onValue, runTransaction, set, remove, onDisconnect } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBVmOkTtCncRJloNKUK8l3rGuIZN1ChDmk",
+  authDomain: "shared-minds-hw5.firebaseapp.com",
+  databaseURL: "https://shared-minds-hw5-default-rtdb.firebaseio.com",
+  projectId: "shared-minds-hw5",
+  storageBucket: "shared-minds-hw5.firebasestorage.app",
+  messagingSenderId: "415216455632",
+  appId: "1:415216455632:web:034422036f47249e5873d5",
+  measurementId: "G-QEVJ9WDG6T"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const statusEl = document.getElementById('status');
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+// Grid config — circle with diameter 300 dots
+const RADIUS_DOTS = 150;       // 300 dot diameter = 150 radius
+const GRID = 40;
+const DOT_R = 5;
+const STEPS = 100;
+const OUTLINE_DURATION = 10000;
+
+// Center of circle in world space
+const CENTER_WX = 0;
+const CENTER_WY = 0;
+const CIRCLE_RADIUS_WORLD = RADIUS_DOTS * GRID; // world-space circle radius
+
+// Vignette in world space
+const VIGNETTE_INNER_WORLD = 7 * GRID;
+const VIGNETTE_OUTER_WORLD = 20 * GRID;
+const VIGNETTE_MAX = 0.97;
+
+let W, H;
+let offsetX = 0, offsetY = 0;
+let scale = 1;
+let mouseWorldX = 0, mouseWorldY = 0;
+let mouseOnScreen = false;
+
+const dotStates = new Map();
+// outlineStates: key -> server timestamp of last click (ms)
+const outlineStates = new Map();
+const remoteCursors = new Map();
+
+const SESSION_ID = Math.random().toString(36).slice(2, 10);
+const myCursorRef = ref(db, `cursors/${SESSION_ID}`);
+onDisconnect(myCursorRef).remove();
+
+// Precompute which grid positions are inside the circle
+const gridPoints = [];
+for (let gx = -RADIUS_DOTS; gx <= RADIUS_DOTS; gx++) {
+  for (let gy = -RADIUS_DOTS; gy <= RADIUS_DOTS; gy++) {
+    const wx = gx * GRID;
+    const wy = gy * GRID;
+    if (Math.hypot(wx, wy) <= CIRCLE_RADIUS_WORLD) {
+      gridPoints.push({ gx, gy, wx, wy, key: `${gx},${gy}` });
+    }
+  }
+}
+
+function centerGrid() {
+  offsetX = W / 2;
+  offsetY = H / 2;
+}
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  centerGrid();
+}
+window.addEventListener('resize', resize);
+
+// Dots
+onValue(ref(db, 'dots'), (snapshot) => {
+  dotStates.clear();
+  const data = snapshot.val();
+  if (data) for (const [k, v] of Object.entries(data)) dotStates.set(k, v);
+  statusEl.textContent = 'live';
+}, (err) => { statusEl.textContent = 'error: ' + err.code; });
+
+// Outlines — stored as { key: timestamp_ms }
+onValue(ref(db, 'outlines'), (snapshot) => {
+  outlineStates.clear();
+  const data = snapshot.val();
+  if (data) for (const [k, v] of Object.entries(data)) outlineStates.set(k, v);
+});
+
+// Cursors
+onValue(ref(db, 'cursors'), (snapshot) => {
+  remoteCursors.clear();
+  const data = snapshot.val();
+  if (data) for (const [id, pos] of Object.entries(data)) {
+    if (id !== SESSION_ID) remoteCursors.set(id, pos);
+  }
+});
+
+let lastCursorWrite = 0;
+function writeCursor(wx, wy) {
+  const now = Date.now();
+  if (now - lastCursorWrite < 40) return;
+  lastCursorWrite = now;
+  set(myCursorRef, { wx, wy });
+}
+function removeCursor() { remove(myCursorRef); }
+
+function stepToColor(count) {
+  const step = count % (STEPS * 2);
+  const t = step <= STEPS ? step / STEPS : 1 - (step - STEPS) / STEPS;
+  const v = Math.round(255 * (1 - t));
+  return [v, v, v];
+}
+
+function vignetteAlpha(dotWx, dotWy, cursorWx, cursorWy) {
+  const dist = Math.hypot(dotWx - cursorWx, dotWy - cursorWy);
+  if (dist <= VIGNETTE_INNER_WORLD) return 0;
+  if (dist >= VIGNETTE_OUTER_WORLD) return VIGNETTE_MAX;
+  const t = (dist - VIGNETTE_INNER_WORLD) / (VIGNETTE_OUTER_WORLD - VIGNETTE_INNER_WORLD);
+  return t * t * (3 - 2 * t) * VIGNETTE_MAX;
+}
+
+function worldToScreen(wx, wy) {
+  return { sx: wx * scale + offsetX, sy: wy * scale + offsetY };
+}
+function screenToWorld(sx, sy) {
+  return { wx: (sx - offsetX) / scale, wy: (sy - offsetY) / scale };
+}
+
+function draw() {
+  const now = Date.now();
+
+  ctx.fillStyle = '#111';
+  ctx.fillRect(0, 0, W, H);
+
+  const screenDotR = Math.max(1, DOT_R * scale);
+
+  // Visible world bounds for culling
+  const worldLeft   = -offsetX / scale;
+  const worldTop    = -offsetY / scale;
+  const worldRight  = (W - offsetX) / scale;
+  const worldBottom = (H - offsetY) / scale;
+
+  const allCursors = [];
+  if (mouseOnScreen) allCursors.push({ wx: mouseWorldX, wy: mouseWorldY });
+  for (const [, pos] of remoteCursors) allCursors.push({ wx: pos.wx, wy: pos.wy });
+  const hasCursors = allCursors.length > 0;
+
+  for (const { gx, gy, wx, wy, key } of gridPoints) {
+    const { sx, sy } = worldToScreen(wx, wy);
+
+    // Cull off-screen
+    if (sx < -screenDotR || sx > W + screenDotR || sy < -screenDotR || sy > H + screenDotR) continue;
+
+    const count = dotStates.get(key) || 0;
+    const [r, g, b] = stepToColor(count);
+
+    let minAlpha = hasCursors ? VIGNETTE_MAX : 0.15;
+    for (const cursor of allCursors) {
+      const a = vignetteAlpha(wx, wy, cursor.wx, cursor.wy);
+      if (a < minAlpha) minAlpha = a;
+    }
+    const dotAlpha = 1 - minAlpha;
+
+    ctx.fillStyle = `rgba(${r},${g},${b},${dotAlpha})`;
+    ctx.beginPath();
+    ctx.arc(sx, sy, screenDotR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Red outline — synced via Firebase timestamp
+    const clickedAt = outlineStates.get(key);
+    if (clickedAt) {
+      const elapsed = now - clickedAt;
+      if (elapsed < OUTLINE_DURATION) {
+        const fadeAlpha = (1 - elapsed / OUTLINE_DURATION) * dotAlpha;
+        ctx.strokeStyle = `rgba(180,0,0,${fadeAlpha})`;
+        ctx.lineWidth = Math.max(0.8, 1.5 * scale);
+        ctx.beginPath();
+        ctx.arc(sx, sy, screenDotR + Math.max(1, 2 * scale), 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Remote cursor dots
+  for (const [, pos] of remoteCursors) {
+    const { sx, sy } = worldToScreen(pos.wx, pos.wy);
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.beginPath();
+    ctx.arc(sx, sy, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Local cursor
+  if (mouseOnScreen) {
+    const { sx, sy } = worldToScreen(mouseWorldX, mouseWorldY);
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.beginPath();
+    ctx.arc(sx, sy, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function loop() { draw(); requestAnimationFrame(loop); }
+requestAnimationFrame(loop);
+
+// Click handler
+function handleClick(sx, sy) {
+  const { wx, wy } = screenToWorld(sx, sy);
+  const gx = Math.round(wx / GRID);
+  const gy = Math.round(wy / GRID);
+  if (Math.hypot(gx * GRID, gy * GRID) > CIRCLE_RADIUS_WORLD) return;
+  const dist = Math.hypot(wx - gx * GRID, wy - gy * GRID);
+  if (dist > GRID / 2) return;
+  const key = `${gx},${gy}`;
+
+  // Write outline timestamp to Firebase
+  set(ref(db, `outlines/${key}`), Date.now());
+
+  // Increment dot
+  runTransaction(ref(db, `dots/${key}`), (current) => ((current || 0) + 1) % (STEPS * 2));
+}
+
+// --- Mouse ---
+let isDragging = false, dragMoved = false, dragStart = null;
+const DRAG_THRESHOLD = 4;
+
+canvas.addEventListener('mousemove', (e) => {
+  mouseOnScreen = true;
+  const w = screenToWorld(e.clientX, e.clientY);
+  mouseWorldX = w.wx; mouseWorldY = w.wy;
+  writeCursor(mouseWorldX, mouseWorldY);
+  if (!isDragging) return;
+  const dx = e.clientX - dragStart.x, dy = e.clientY - dragStart.y;
+  if (!dragMoved && Math.hypot(dx, dy) > DRAG_THRESHOLD) dragMoved = true;
+  if (dragMoved) {
+    offsetX = dragStart.ox + dx; offsetY = dragStart.oy + dy;
+    const w2 = screenToWorld(e.clientX, e.clientY);
+    mouseWorldX = w2.wx; mouseWorldY = w2.wy;
+  }
+});
+canvas.addEventListener('mouseleave', () => { mouseOnScreen = false; isDragging = false; removeCursor(); });
+canvas.addEventListener('mouseenter', (e) => {
+  mouseOnScreen = true;
+  const w = screenToWorld(e.clientX, e.clientY);
+  mouseWorldX = w.wx; mouseWorldY = w.wy;
+});
+canvas.addEventListener('mousedown', (e) => {
+  if (e.button !== 0) return;
+  isDragging = true; dragMoved = false;
+  dragStart = { x: e.clientX, y: e.clientY, ox: offsetX, oy: offsetY };
+});
+canvas.addEventListener('mouseup', (e) => {
+  if (!isDragging) return;
+  isDragging = false;
+  if (!dragMoved) handleClick(e.clientX, e.clientY);
+});
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.1 : 0.9;
+  const newScale = Math.min(10, Math.max(0.05, scale * factor));
+  offsetX = e.clientX - (e.clientX - offsetX) * (newScale / scale);
+  offsetY = e.clientY - (e.clientY - offsetY) * (newScale / scale);
+  scale = newScale;
+  const w = screenToWorld(e.clientX, e.clientY);
+  mouseWorldX = w.wx; mouseWorldY = w.wy;
+  writeCursor(mouseWorldX, mouseWorldY);
+}, { passive: false });
+
+window.addEventListener('beforeunload', () => removeCursor());
+
+// Touch
+let lastTouchDist = null;
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  if (e.touches.length === 1) {
+    isDragging = true; dragMoved = false;
+    dragStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, ox: offsetX, oy: offsetY };
+  } else if (e.touches.length === 2) {
+    isDragging = false;
+    lastTouchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+  }
+}, { passive: false });
+canvas.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  if (e.touches.length === 1 && isDragging) {
+    const dx = e.touches[0].clientX - dragStart.x, dy = e.touches[0].clientY - dragStart.y;
+    if (!dragMoved && Math.hypot(dx, dy) > DRAG_THRESHOLD) dragMoved = true;
+    if (dragMoved) { offsetX = dragStart.ox + dx; offsetY = dragStart.oy + dy; }
+  } else if (e.touches.length === 2 && lastTouchDist) {
+    const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    const factor = dist / lastTouchDist;
+    const newScale = Math.min(10, Math.max(0.05, scale * factor));
+    offsetX = cx - (cx - offsetX) * (newScale / scale);
+    offsetY = cy - (cy - offsetY) * (newScale / scale);
+    scale = newScale; lastTouchDist = dist;
+  }
+}, { passive: false });
+canvas.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  if (!dragMoved && isDragging && e.changedTouches.length === 1)
+    handleClick(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+  isDragging = false; lastTouchDist = null;
+}, { passive: false });
+
+resize();
+</script>
+</body>
+</html>
